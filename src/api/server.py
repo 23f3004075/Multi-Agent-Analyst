@@ -49,6 +49,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_no_cache_headers(request, call_next):
+    """Enforce strict no-cache headers for HTML, JS, and CSS so normal Chrome tabs never serve stale assets."""
+    response = await call_next(request)
+    path = request.url.path.lower()
+    if path == "/" or path.endswith((".html", ".js", ".css", ".json")):
+        response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
+
 # Compile graph once at server startup
 _compiled_graph = None
 
@@ -570,6 +582,20 @@ def download_report(
 # Mount static directory for HTML UI
 if not WEB_DIR.exists():
     WEB_DIR.mkdir(parents=True, exist_ok=True)
+
+
+@app.get("/")
+async def serve_index():
+    """Explicit root route serving index.html with strict cache-busting headers."""
+    return FileResponse(
+        path=str(WEB_DIR / "index.html"),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
 
 app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="static")
 

@@ -90,6 +90,7 @@ createApp({
   mounted() {
     this.checkHealth();
     this.fetchTableCatalog();
+    this.submitQuery();
   },
 
   computed: {
@@ -498,6 +499,10 @@ createApp({
     renderActiveChart() {
       const container = document.getElementById("chart-container");
       if (!container) return;
+      if (typeof Plotly === "undefined") {
+        console.warn("Plotly is not loaded yet.");
+        return;
+      }
 
       let figure = null;
       if (this.chartOptions && this.chartOptions.length > this.selectedChartIndex) {
