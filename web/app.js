@@ -92,7 +92,55 @@ createApp({
     this.fetchTableCatalog();
   },
 
+  computed: {
+    renderedSummary() {
+      const raw = this.result && this.result.final_response ? this.result.final_response : "";
+      if (!raw) return "";
+
+      if (typeof marked !== "undefined" && typeof marked.parse === "function") {
+        try {
+          return marked.parse(raw);
+        } catch (e) {
+          console.warn("Marked.js parse error:", e);
+        }
+      }
+
+      return this.formatMarkdownFallback(raw);
+    }
+  },
+
   methods: {
+    formatMarkdownFallback(text) {
+      if (!text) return "";
+      let html = text
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      // Headers
+      html = html.replace(/^### (.*$)/gim, '<h5 class="fw-bold mt-3 mb-2 text-primary">$1</h5>');
+      html = html.replace(/^## (.*$)/gim, '<h4 class="fw-bold mt-3 mb-2 text-primary">$1</h4>');
+      html = html.replace(/^# (.*$)/gim, '<h3 class="fw-bold mt-3 mb-2 text-primary">$1</h3>');
+
+      // Bold & Italic
+      html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="text-dark">$1</strong>');
+      html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+      // Inline code
+      html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+
+      // Bullet lists
+      html = html.replace(/^\s*[-•]\s+(.*$)/gim, '<li class="mb-1">$1</li>');
+      html = html.replace(/(<li.*<\/li>)/gms, '<ul class="ps-3 mb-3">$1</ul>');
+
+      // Paragraphs
+      html = html.split("\n\n").map(p => {
+        if (p.startsWith("<h") || p.startsWith("<ul")) return p;
+        return `<p class="mb-2">${p.replace(/\n/g, "<br>")}</p>`;
+      }).join("");
+
+      return html;
+    },
     async fetchTableCatalog() {
       try {
         const res = await fetch("/api/tables/preview");

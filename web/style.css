@@ -590,4 +590,63 @@ body {
   color: #ffffff;
 }
 
+/* ─────────────────────────────────────────────────────────────────────
+   Executive Summary Markdown Formatted View
+   ───────────────────────────────────────────────────────────────────── */
+.markdown-body {
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  color: #1e293b;
+}
+
+.markdown-body p {
+  margin-bottom: 0.85rem;
+}
+
+.markdown-body strong {
+  color: var(--primary-color);
+  font-weight: 700;
+}
+
+.markdown-body ul, 
+.markdown-body ol {
+  padding-left: 1.3rem;
+  margin-bottom: 0.9rem;
+}
+
+.markdown-body li {
+  margin-bottom: 0.35rem;
+  color: #334155;
+}
+
+.markdown-body h1, 
+.markdown-body h2, 
+.markdown-body h3, 
+.markdown-body h4 {
+  color: var(--primary-color);
+  font-weight: 700;
+  margin-top: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-body code {
+  background-color: #e2e8f0;
+  color: #0f172a;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.88em;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+
+.markdown-body blockquote {
+  border-left: 4px solid var(--accent-blue);
+  background-color: #f8fafc;
+  padding: 8px 14px;
+  border-radius: 0 4px 4px 0;
+  color: #475569;
+  margin: 10px 0;
+}
+
+
 
