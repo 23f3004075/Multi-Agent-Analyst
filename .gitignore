@@ -1,0 +1,60 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ── Virtual Environment ──
+.venv/
+venv/
+env/
+
+# ── Environment ──
+.env
+.env.local
+.env.production
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── DuckDB ──
+data/analytics.duckdb
+data/analytics.duckdb.wal
+data/*.parquet
+
+# ── Generated Outputs ──
+outputs/
+eval/benchmark_results.json
+
+# ── Schema Embeddings Cache ──
+src/schema/embeddings_cache/*.npy
+src/schema/embeddings_cache/*.pkl
+
+# ── Temporary ──
+tmp/
+scratch/
+*.tmp
+*.log
+
+# ── Coverage ──
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# ── Type Checking ──
+.mypy_cache/
+.ruff_cache/
+
+# ── Docker ──
+*.pid

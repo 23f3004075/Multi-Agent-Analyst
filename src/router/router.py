@@ -1,0 +1,244 @@
+"""
+Query Complexity Router.
+
+Determines whether a query should be routed to Tier 1 (SLM) or
+Tier 2 (Frontier) based on heuristic features extractable from the
+natural-language query and schema-linking results.
+
+Architecture:
+    1. Heuristic classifier (fast, rule-based)
+    2. Confidence scoring
+    3. Schema-aware complexity estimation
+
+Does NOT use RouteLLM (wrong training domain) or SQL-level features
+(circular dependency — SQL doesn't exist yet at routing time).
+
+Usage:
+    from src.router.router import QueryRouter, RoutingDecision
+
+    router = QueryRouter(settings)
+    decision = router.route("What is total revenue by category?", linked_tables=["order_items", "products"])
+"""
+
+from __future__ import annotations
+
+import logging
+import re
+from dataclasses import dataclass
+from enum import Enum
+
+from src.config import Settings
+
+logger = logging.getLogger(__name__)
+
+
+class Tier(str, Enum):
+    TIER_1_SLM = "TIER_1_SLM"
+    TIER_2_FRONTIER = "TIER_2_FRONTIER"
+
+
+@dataclass
+class RoutingDecision:
+    """Result of the routing decision."""
+
+    tier: Tier
+    confidence: float  # 0.0–1.0
+    reason: str
+    features: dict  # Debug: extracted features
+    ambiguous: bool  # True if confidence < threshold
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Feature patterns (extractable from NL query, NOT from SQL)
+# ─────────────────────────────────────────────────────────────────────
+
+# Patterns that suggest simplicity (single-table, direct lookup)
+SIMPLE_PATTERNS: list[tuple[str, float]] = [
+    (r"\bhow many\b", 0.2),
+    (r"\bcount\b", 0.15),
+    (r"\btotal\b", 0.1),
+    (r"\blist\b", 0.2),
+    (r"\bshow me\b", 0.15),
+    (r"\btop \d+\b", 0.15),
+    (r"\baverage\b", 0.1),
+    (r"\bwhat is the\b", 0.1),
+    (r"\bmost (popular|common|frequent)\b", 0.15),
+]
+
+# Patterns that suggest complexity (multi-table, temporal, comparative)
+COMPLEX_PATTERNS: list[tuple[str, float]] = [
+    (r"\bcompare\b", 0.3),
+    (r"\bcorrelat", 0.35),
+    (r"\btrend\b", 0.25),
+    (r"\bgrowth\b", 0.2),
+    (r"\bover time\b", 0.25),
+    (r"\bmonth.over.month\b", 0.3),
+    (r"\byear.over.year\b", 0.3),
+    (r"\bpercentage\b", 0.15),
+    (r"\b(ratio|rate)\b", 0.2),
+    (r"\bversus|vs\.?\b", 0.25),
+    (r"\b(breakdown|decomposition)\b", 0.2),
+    (r"\b(anomal|outlier|unusual)\b", 0.3),
+    (r"\b(predict|forecast|project)\b", 0.35),
+    (r"\bcohort\b", 0.35),
+    (r"\bretention\b", 0.3),
+    (r"\bfunnel\b", 0.3),
+    (r"\bsegment\b", 0.2),
+    (r"\bwindow\b", 0.2),
+    (r"\branking|percentile\b", 0.2),
+    (r"\bmoving average\b", 0.3),
+    (r"\bcumulative\b", 0.25),
+    (r"\bpivot\b", 0.25),
+    (r"\bcross.tab\b", 0.3),
+]
+
+# Ambiguity signals (query needs clarification, not a bigger model)
+AMBIGUITY_PATTERNS: list[str] = [
+    r"^(how|what|show|tell)\b.{0,15}$",  # Very short/vague queries
+    r"\b(it|them|those|that|these)\b(?!.*\b(table|column|order|product)\b)",
+    r"\bthe data\b",
+    r"\beverything\b",
+    r"\bsome\b.*\banalysis\b",
+]
+
+
+class QueryRouter:
+    """
+    Routes queries to the appropriate model tier.
+
+    Uses heuristic feature extraction from the NL query and
+    schema-linking metadata (number of linked tables).
+    """
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def route(
+        self,
+        query: str,
+        linked_tables: list[str] | None = None,
+    ) -> RoutingDecision:
+        """
+        Determine the routing tier for a query.
+
+        Args:
+            query: Natural-language user question.
+            linked_tables: Tables identified by schema linker.
+
+        Returns:
+            RoutingDecision with tier, confidence, and reasoning.
+        """
+        features = self._extract_features(query, linked_tables or [])
+
+        # Compute complexity score (0 = simple, 1 = complex)
+        complexity = self._compute_complexity(features)
+
+        # Determine tier
+        if complexity >= 0.55:
+            tier = Tier.TIER_2_FRONTIER
+            confidence = min(complexity, 1.0)
+            reason = "High complexity score: " + ", ".join(features["complex_signals"])
+        else:
+            tier = Tier.TIER_1_SLM
+            confidence = 1.0 - complexity
+            reason = "Low complexity score"
+            if features["simple_signals"]:
+                reason += ": " + ", ".join(features["simple_signals"][:3])
+
+        # Check ambiguity
+        ambiguous = (
+            confidence < self._settings.router_confidence_threshold
+            or features["ambiguity_score"] > 0.3
+        )
+
+        decision = RoutingDecision(
+            tier=tier,
+            confidence=round(confidence, 3),
+            reason=reason,
+            features=features,
+            ambiguous=ambiguous,
+        )
+
+        logger.info(
+            "Routing: '%s' → %s (confidence=%.2f, ambiguous=%s)",
+            query[:60], tier.value, confidence, ambiguous,
+        )
+
+        return decision
+
+    def _extract_features(
+        self, query: str, linked_tables: list[str]
+    ) -> dict:
+        """Extract routing features from the NL query."""
+        query_lower = query.lower()
+
+        # Simple signal matching
+        simple_score = 0.0
+        simple_signals = []
+        for pattern, weight in SIMPLE_PATTERNS:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                simple_score += weight
+                simple_signals.append(pattern.strip("\\b"))
+
+        # Complex signal matching
+        complex_score = 0.0
+        complex_signals = []
+        for pattern, weight in COMPLEX_PATTERNS:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                complex_score += weight
+                complex_signals.append(pattern.strip("\\b"))
+
+        # Schema complexity (from linker results)
+        table_count = len(linked_tables)
+        if table_count >= 4:
+            complex_score += 0.3
+            complex_signals.append(f"{table_count} tables linked")
+        elif table_count >= 3:
+            complex_score += 0.15
+            complex_signals.append(f"{table_count} tables linked")
+
+        # Query length heuristic (longer = usually more complex)
+        word_count = len(query.split())
+        if word_count > 25:
+            complex_score += 0.15
+            complex_signals.append("long query")
+        elif word_count < 6:
+            simple_score += 0.1
+            simple_signals.append("short query")
+
+        # Ambiguity detection
+        ambiguity_score = 0.0
+        for pattern in AMBIGUITY_PATTERNS:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                ambiguity_score += 0.15
+
+        return {
+            "simple_score": round(simple_score, 3),
+            "complex_score": round(complex_score, 3),
+            "ambiguity_score": round(min(ambiguity_score, 1.0), 3),
+            "table_count": table_count,
+            "word_count": word_count,
+            "simple_signals": simple_signals,
+            "complex_signals": complex_signals,
+        }
+
+    @staticmethod
+    def _compute_complexity(features: dict) -> float:
+        """
+        Compute a single complexity score from extracted features.
+
+        0.0 = definitely simple (Tier 1)
+        1.0 = definitely complex (Tier 2)
+        """
+        simple = features["simple_score"]
+        complex_ = features["complex_score"]
+
+        # Normalize: complexity = complex / (simple + complex + epsilon)
+        total = simple + complex_ + 0.1  # epsilon to avoid division by zero
+        complexity = complex_ / total
+
+        # Boost complexity if ambiguity is high
+        if features["ambiguity_score"] > 0.3:
+            complexity = min(complexity + 0.15, 1.0)
+
+        return round(complexity, 3)

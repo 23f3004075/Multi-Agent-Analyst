@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Enterprise SQL Agent - Autonomous Analytics</title>
+  
+  <!-- Bootstrap 5.3 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  
+  <!-- Custom Corporate CSS -->
+  <link rel="stylesheet" href="style.css">
+
+  <!-- Vue.js 3 -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.38/dist/vue.global.prod.js"></script>
+
+  <!-- Plotly.js -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+
+  <!-- Marked.js for Executive Markdown View -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@14.1.2/marked.min.js"></script>
+</head>
+<body>
+  <div id="app" v-cloak>
+    <!-- Navigation Bar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-3">
+      <div class="container-fluid px-4">
+        <a class="navbar-brand d-flex align-items-center" href="#">
+          <span class="fs-5 fw-bold">Enterprise SQL Agent</span>
+          <span class="badge bg-secondary ms-3 system-badge">Production BI Engine</span>
+        </a>
+        <div class="d-flex align-items-center">
+          <span class="status-dot" :class="health.status === 'healthy' ? 'status-dot-active' : 'status-dot-error'"></span>
+          <span class="text-light small me-3">
+            Database: {{ health.status === 'healthy' ? health.table_count + ' Tables Active' : 'Disconnected' }}
+          </span>
+        </div>
+      </div>
+    </nav>
+
+    <!-- Main Content Container -->
+    <div class="container-fluid px-4 py-4">
+      <div class="row g-4">
+        <!-- Database Schema & Table 5-Row Hover Explorer -->
+        <div class="col-12" v-if="tablesCatalog && tablesCatalog.length">
+          <div class="table-explorer-bar">
+            <span class="table-explorer-title">Database Tables (Hover for 5-row preview):</span>
+            <span
+              v-for="tbl in tablesCatalog"
+              :key="tbl.name"
+              class="table-chip"
+              :class="{ 'hover-active': hoveredTable && hoveredTable.name === tbl.name }"
+              @mouseenter="showTablePreview(tbl, $event)"
+              @mouseleave="hideTablePreview"
+              @click="insertTableQuery(tbl.name)"
+            >
+              <span>{{ tbl.name }}</span>
+              <span class="table-chip-rows">{{ (tbl.row_count || 0).toLocaleString() }} rows</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Left / Top Column: Query Input Panel -->
+        <div class="col-12">
+          <div class="card card-custom">
+            <div class="card-header card-header-custom d-flex justify-content-between align-items-center">
+              <span>Natural-Language Query Input</span>
+              <span class="text-muted small">Sandboxed AST Verification &bull; Dual-Tier Routing</span>
+            </div>
+            <div class="card-body p-4">
+              <div class="mb-3">
+                <label for="queryInput" class="form-label fw-semibold small text-uppercase text-muted">
+                  Ask a business question about the dataset:
+                </label>
+                <textarea
+                  id="queryInput"
+                  v-model="query"
+                  class="form-control query-textarea"
+                  rows="3"
+                  placeholder="e.g. What is total revenue by product category for delivered orders?"
+                  :disabled="loading"
+                  @keydown.ctrl.enter="submitQuery"
+                ></textarea>
+              </div>
+
+              <!-- Sample Queries -->
+              <div class="mb-3">
+                <span class="small text-muted me-2 fw-semibold">Sample Queries:</span>
+                <button
+                  v-for="(sample, idx) in sampleQueries"
+                  :key="idx"
+                  type="button"
+                  class="sample-btn"
+                  @click="setSample(sample)"
+                  :disabled="loading"
+                >
+                  {{ sample }}
+                </button>
+              </div>
+
+              <!-- Action Bar -->
+              <div class="d-flex justify-content-between align-items-center pt-2 border-top">
+                <div class="d-flex align-items-center">
+                  <label for="maxRetries" class="small text-muted me-2">Max Retries:</label>
+                  <select id="maxRetries" v-model="maxRetries" class="form-select form-select-sm" style="width: 80px;" :disabled="loading">
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  class="btn btn-primary px-4 fw-semibold"
+                  @click="submitQuery"
+                  :disabled="loading"
+                >
+                  <span v-if="loading" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                  {{ loading ? 'Executing...' : 'Run Query' }}
+                </button>
+              </div>
+
+              <!-- Loading Progress Note -->
+              <div v-if="loading && statusText" class="alert alert-info alert-custom mt-3 py-2 px-3 small mb-0">
+                <span class="spinner-grow spinner-grow-sm me-2" role="status"></span>
+                <span>{{ statusText }}</span>
+              </div>
+
+              <!-- Error Alert -->
+              <div v-if="error" class="alert alert-danger alert-custom mt-3 py-2 px-3 small mb-0">
+                <strong>Error:</strong> {{ error }}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Indication Lights Progress Strip -->
+        <div v-if="loading || stages.sql.status !== 'idle'" class="col-12">
+          <div class="stage-pipeline justify-content-between align-items-center">
+            <span class="small fw-bold text-uppercase text-muted">Pipeline Progress:</span>
+            
+            <!-- Stage 1: Executive Summary -->
+            <div
+              class="stage-badge"
+              :class="['light-' + stages.summary.status, { 'active-stage': activeTab === 'summary' }]"
+              @click="setTab('summary')"
+            >
+              <span class="indicator-dot"></span>
+              <span>Executive Summary: {{ stages.summary.status.toUpperCase() }}</span>
+            </div>
+
+            <!-- Stage 2: Interactive Chart -->
+            <div
+              class="stage-badge"
+              :class="['light-' + stages.chart.status, { 'active-stage': activeTab === 'chart' }]"
+              @click="setTab('chart')"
+            >
+              <span class="indicator-dot"></span>
+              <span>Interactive Chart: {{ stages.chart.status.toUpperCase() }}</span>
+            </div>
+
+            <!-- Stage 3: Data Preview (10 Rows) -->
+            <div
+              class="stage-badge"
+              :class="['light-' + stages.data.status, { 'active-stage': activeTab === 'data' }]"
+              @click="setTab('data')"
+            >
+              <span class="indicator-dot"></span>
+              <span>Data Preview (10 Rows): {{ stages.data.status.toUpperCase() }}</span>
+            </div>
+
+            <!-- Stage 4: Generated SQL & Audit -->
+            <div
+              class="stage-badge"
+              :class="['light-' + stages.sql.status, { 'active-stage': activeTab === 'sql' }]"
+              @click="setTab('sql')"
+            >
+              <span class="indicator-dot"></span>
+              <span>Generated SQL & Audit: {{ stages.sql.status.toUpperCase() }}</span>
+            </div>
+
+            <!-- Stage 5: Export Reports -->
+            <div
+              class="stage-badge"
+              :class="['light-' + stages.reports.status, { 'active-stage': activeTab === 'reports' }]"
+              @click="setTab('reports')"
+            >
+              <span class="indicator-dot"></span>
+              <span>Export Reports: {{ stages.reports.status.toUpperCase() }}</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Metrics Strip (Visible When Data or SQL Available) -->
+        <div v-if="result && (result.generated_sql || stages.data.status === 'done')" class="col-12">
+          <div class="row g-3">
+            <div class="col-md-2 col-sm-4">
+              <div class="metric-box">
+                <div class="metric-label">Model Tier</div>
+                <div class="metric-value">
+                  <span
+                    class="badge"
+                    :class="result.route_decision === 'TIER_1_SLM' ? 'badge-tier-slm' : 'badge-tier-frontier'"
+                  >
+                    {{ result.route_decision === 'TIER_1_SLM' ? 'Tier 1: SLM' : 'Tier 2: Frontier' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-2 col-sm-4">
+              <div class="metric-box">
+                <div class="metric-label">Router Confidence</div>
+                <div class="metric-value">{{ Math.round((result.route_confidence || 1) * 100) }}%</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-sm-4">
+              <div class="metric-box">
+                <div class="metric-label">Total Latency</div>
+                <div class="metric-value">{{ formatLatency(result.total_latency_ms) }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-sm-4">
+              <div class="metric-box">
+                <div class="metric-label">Total Cost</div>
+                <div class="metric-value">{{ formatCurrency(result.total_cost_usd) }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-sm-4">
+              <div class="metric-box">
+                <div class="metric-label">Retry Attempts</div>
+                <div class="metric-value">{{ result.retry_count }}</div>
+              </div>
+            </div>
+            <div class="col-md-2 col-sm-4">
+              <div class="metric-box">
+                <div class="metric-label">Security Check</div>
+                <div class="metric-value">
+                  <span class="badge" :class="result.guardrail_passed ? 'bg-success' : 'bg-danger'">
+                    {{ result.guardrail_passed ? 'Passed' : 'Blocked' }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Ambiguity / Warning Banners -->
+        <div v-if="result && !result.guardrail_passed" class="col-12">
+          <div class="alert alert-danger alert-custom py-3 px-4 mb-0">
+            <h6 class="fw-bold mb-1">[Security Block] Query Was Rejected</h6>
+            <p class="mb-0 small">{{ result.guardrail_rejection_reason || 'Query was flagged by security filters.' }}</p>
+          </div>
+        </div>
+
+        <div v-if="result && result.ambiguity_flag && result.interpretation_note" class="col-12">
+          <div class="alert alert-warning alert-custom py-2 px-3 small mb-0">
+            <strong>[Ambiguity Notice]:</strong> {{ result.interpretation_note }}
+          </div>
+        </div>
+
+        <!-- Result Tabs Section -->
+        <div v-if="stages.sql.status !== 'idle'" class="col-12">
+          <div class="card card-custom">
+            <div class="card-header card-header-custom p-0">
+              <ul class="nav nav-tabs px-3" role="tablist">
+                <!-- Tab 1: Executive Summary -->
+                <li class="nav-item">
+                  <button
+                    class="nav-link"
+                    :class="{ active: activeTab === 'summary' }"
+                    @click="setTab('summary')"
+                  >
+                    Executive Summary
+                    <span class="tab-light" :class="'tab-light-' + stages.summary.status"></span>
+                  </button>
+                </li>
+
+                <!-- Tab 2: Interactive Chart -->
+                <li class="nav-item">
+                  <button
+                    class="nav-link"
+                    :class="{ active: activeTab === 'chart' }"
+                    @click="setTab('chart')"
+                  >
+                    Interactive Chart
+                    <span class="tab-light" :class="'tab-light-' + stages.chart.status"></span>
+                  </button>
+                </li>
+
+                <!-- Tab 3: Data Preview (10 Rows) -->
+                <li class="nav-item">
+                  <button
+                    class="nav-link"
+                    :class="{ active: activeTab === 'data' }"
+                    @click="setTab('data')"
+                  >
+                    Data Preview (10 Rows)
+                    <span class="tab-light" :class="'tab-light-' + stages.data.status"></span>
+                  </button>
+                </li>
+
+                <!-- Tab 4: Generated SQL & Audit -->
+                <li class="nav-item">
+                  <button
+                    class="nav-link"
+                    :class="{ active: activeTab === 'sql' }"
+                    @click="setTab('sql')"
+                  >
+                    Generated SQL & Audit
+                    <span class="tab-light" :class="'tab-light-' + stages.sql.status"></span>
+                  </button>
+                </li>
+
+                <!-- Tab 5: Export Reports -->
+                <li class="nav-item">
+                  <button
+                    class="nav-link"
+                    :class="{ active: activeTab === 'reports' }"
+                    @click="setTab('reports')"
+                  >
+                    Export Reports
+                    <span class="tab-light" :class="'tab-light-' + stages.reports.status"></span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+
+            <div class="card-body p-4">
+              <!-- Tab 1: Executive Summary -->
+              <div v-show="activeTab === 'summary'">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="fw-bold text-uppercase text-muted small mb-0">Analysis Findings</h6>
+                  <span class="badge" :class="stages.summary.status === 'done' ? 'bg-success' : 'bg-warning text-dark'">
+                    {{ stages.summary.status === 'done' ? 'Completed' : 'Generating Analysis...' }}
+                  </span>
+                </div>
+
+                <div v-if="stages.summary.status === 'pending'" class="p-4 bg-light rounded border text-center">
+                  <span class="spinner-border spinner-border-sm me-2 text-primary"></span>
+                  <span class="text-muted small">Interpreting query results and compiling executive summary...</span>
+                </div>
+
+                <div v-else-if="result.final_response" class="p-4 bg-light rounded border">
+                  <div class="markdown-body" v-html="renderedSummary"></div>
+                </div>
+                <div v-else class="text-muted small p-3">
+                  No summary available yet.
+                </div>
+              </div>
+
+              <!-- Tab 2: Interactive Chart -->
+              <div v-show="activeTab === 'chart'">
+                <!-- Multiple Chart Options Toolbar -->
+                <div v-if="chartOptions.length > 0" class="chart-options-bar">
+                  <span class="small fw-bold text-muted text-uppercase me-2">Chart View Options:</span>
+                  <button
+                    v-for="(opt, idx) in chartOptions"
+                    :key="idx"
+                    type="button"
+                    class="chart-opt-btn"
+                    :class="{ active: selectedChartIndex === idx }"
+                    @click="selectChartOption(idx)"
+                  >
+                    {{ opt.label || opt.chart_type }}
+                  </button>
+                </div>
+
+                <div v-if="stages.chart.status === 'pending'" class="p-5 bg-light rounded border text-center">
+                  <span class="spinner-border spinner-border-sm me-2 text-primary"></span>
+                  <span class="text-muted small">Generating dynamic visualizations and chart options...</span>
+                </div>
+
+                <div v-show="stages.chart.status === 'done'">
+                  <div id="chart-container" style="min-height: 480px; width: 100%;"></div>
+                </div>
+
+                <div v-if="stages.chart.status === 'failed'" class="alert alert-warning py-3">
+                  Chart generation could not visualize this dataset structure.
+                </div>
+              </div>
+
+              <!-- Tab 3: Data Preview (10 Rows) -->
+              <div v-show="activeTab === 'data'">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="fw-bold text-uppercase text-muted small mb-0">
+                    Data Preview (Showing {{ result.data.rows ? result.data.rows.length : 0 }} of {{ result.data.total_rows }} Rows)
+                  </h6>
+                  <div>
+                    <span v-if="result.data.truncated" class="badge bg-warning text-dark me-2">
+                      [Truncated to 5,000 Rows Limit]
+                    </span>
+                    <span class="badge bg-light text-dark border">
+                      Total: {{ result.data.total_rows }} Rows
+                    </span>
+                  </div>
+                </div>
+
+                <div v-if="stages.data.status === 'pending'" class="p-5 bg-light rounded border text-center">
+                  <span class="spinner-border spinner-border-sm me-2 text-primary"></span>
+                  <span class="text-muted small">Executing SQL statement in sandboxed DuckDB database...</span>
+                </div>
+
+                <div v-else-if="result.data && result.data.rows && result.data.rows.length" class="table-responsive border rounded" style="max-height: 440px; overflow-y: auto;">
+                  <table class="table table-hover table-striped table-custom mb-0">
+                    <thead>
+                      <tr>
+                        <th v-for="(col, cIdx) in result.data.columns" :key="cIdx">
+                          {{ col }}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="(row, rIdx) in result.data.rows" :key="rIdx">
+                        <td v-for="(col, cIdx) in result.data.columns" :key="cIdx">
+                          {{ row[col] }}
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div v-else-if="stages.data.status === 'done'" class="p-3 text-muted small">
+                  Query returned zero rows.
+                </div>
+              </div>
+
+              <!-- Tab 4: SQL & Audit -->
+              <div v-show="activeTab === 'sql'">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <h6 class="fw-bold text-uppercase text-muted small mb-0">AST-Verified SQL Statement</h6>
+                  <span class="badge bg-light text-dark border">
+                    Model: {{ result.model_used }}
+                  </span>
+                </div>
+
+                <div v-if="stages.sql.status === 'pending'" class="p-5 bg-light rounded border text-center">
+                  <span class="spinner-border spinner-border-sm me-2 text-primary"></span>
+                  <span class="text-muted small">Generating DuckDB SQL via routed model and verifying AST...</span>
+                </div>
+
+                <div v-else class="code-block mb-3">
+                  <code>{{ result.generated_sql || '-- No SQL statement was produced' }}</code>
+                </div>
+
+                <div v-if="result.error_history && result.error_history.length" class="mt-4">
+                  <h6 class="fw-bold text-uppercase text-muted small mb-2">Self-Healing Execution Log</h6>
+                  <ul class="list-group list-group-flush border rounded">
+                    <li
+                      v-for="(err, idx) in result.error_history"
+                      :key="idx"
+                      class="list-group-item list-group-item-danger small"
+                    >
+                      {{ err }}
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
+              <!-- Tab 5: Export Reports -->
+              <div v-show="activeTab === 'reports'">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                  <h6 class="fw-bold text-uppercase text-muted small mb-0">Compiled Executive Reports</h6>
+                  <span class="badge" :class="stages.reports.status === 'done' ? 'bg-success' : 'bg-warning text-dark'">
+                    {{ stages.reports.status === 'done' ? 'Ready for Download & Preview' : 'Compiling Reports...' }}
+                  </span>
+                </div>
+
+                <div class="d-flex gap-3 mb-4">
+                  <a
+                    v-if="result.reports && result.reports.pdf"
+                    :href="result.reports.pdf"
+                    target="_blank"
+                    class="btn btn-outline-primary"
+                  >
+                    Download PDF Report
+                  </a>
+                  <a
+                    v-if="result.reports && result.reports.excel"
+                    :href="result.reports.excel"
+                    target="_blank"
+                    class="btn btn-outline-success"
+                  >
+                    Download Excel Workbook
+                  </a>
+                  <a
+                    v-if="pdfPreviewUrl"
+                    :href="pdfPreviewUrl"
+                    target="_blank"
+                    class="btn btn-outline-secondary"
+                  >
+                    Open PDF in Full Tab
+                  </a>
+                </div>
+
+                <!-- PDF Preview Loader -->
+                <div v-if="pdfPreviewUrl" class="pdf-viewer-container">
+                  <iframe :src="pdfPreviewUrl" class="pdf-iframe" title="PDF Report Preview"></iframe>
+                </div>
+                <div v-else class="pdf-loading-overlay p-5 text-center">
+                  <span v-if="stages.reports.status === 'pending'" class="spinner-border text-primary mb-3" role="status"></span>
+                  <div class="fw-semibold text-muted">
+                    {{ stages.reports.status === 'pending' ? 'Compiling PDF executive report with ReportLab...' : 'PDF report preview will appear here once generated.' }}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Floating 5-Row Table Hover Preview Popover -->
+    <div
+      v-if="hoveredTable"
+      class="table-hover-popover"
+      :style="popoverStyle"
+      @mouseenter="keepTablePreview"
+      @mouseleave="hideTablePreview"
+    >
+      <div class="table-popover-header">
+        <div class="table-popover-title">
+          <span>Table: <code>{{ hoveredTable.name }}</code></span>
+          <span class="badge bg-light text-dark">{{ (hoveredTable.row_count || 0).toLocaleString() }} Total Rows</span>
+          <span class="badge bg-secondary">{{ hoveredTable.column_count }} Columns</span>
+        </div>
+        <button
+          type="button"
+          class="btn-use-table"
+          @click="insertTableQuery(hoveredTable.name)"
+          title="Insert table name into query"
+        >
+          Use in Query
+        </button>
+      </div>
+      <div class="table-popover-body">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="preview-subhead">First 5 Sample Rows:</span>
+          <span class="text-muted" style="font-size: 0.72rem;">Scroll horizontally to inspect all columns</span>
+        </div>
+        <div class="preview-table-container">
+          <table class="preview-table">
+            <thead>
+              <tr>
+                <th v-for="col in hoveredTable.columns" :key="col">
+                  {{ col }}
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(row, rIdx) in hoveredTable.sample_rows" :key="rIdx">
+                <td v-for="col in hoveredTable.columns" :key="col" :title="String(row[col])">
+                  {{ row[col] === null ? 'NULL' : row[col] }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bootstrap 5.3 JS Bundle -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.bundle.min.js"></script>
+
+  <!-- Application JS -->
+  <script src="app.js"></script>
+</body>
+</html>
