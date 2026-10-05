@@ -13,7 +13,7 @@ const { createApp, nextTick } = Vue;
 createApp({
   data() {
     return {
-      query: "Top 10 product categories by total sales revenue",
+      query: "",
       maxRetries: 2,
       loading: false,
       statusText: "",
@@ -83,14 +83,31 @@ createApp({
         "Monthly order trend and revenue for 2017 to 2018",
         "Show distribution of payment types as a pie chart",
         "Average delivery delay in days grouped by customer state"
-      ]
+      ],
+
+      // Telemetry & Log Store
+      telemetryLogs: [],
+      telemetryStats: {
+        total_queries: 0,
+        success_count: 0,
+        failed_count: 0,
+        blocked_count: 0,
+        success_rate_pct: 100.0,
+        avg_latency_ms: 0.0,
+        total_cost_usd: 0.0,
+        tier1_count: 0,
+        tier2_count: 0,
+        last_run_status: "IDLE"
+      },
+      telemetryFilter: "ALL",
+      selectedLog: null
     };
   },
 
   mounted() {
     this.checkHealth();
     this.fetchTableCatalog();
-    this.submitQuery();
+    this.fetchTelemetryLogs();
   },
 
   computed: {
@@ -438,6 +455,7 @@ createApp({
             this.stages[k].status = "failed";
           }
         });
+        this.fetchTelemetryLogs();
       }
 
       // Pipeline complete
@@ -447,11 +465,13 @@ createApp({
         this.result.retry_count = data.retry_count || 0;
         this.result.model_used = data.model_used || this.result.model_used;
         this.loading = false;
+        this.fetchTelemetryLogs();
       }
 
       // General error
       else if (data.event === "error") {
         this.error = data.detail || "An error occurred during query processing.";
+        this.fetchTelemetryLogs();
       }
     },
 
@@ -488,11 +508,13 @@ createApp({
         } else {
           this.activeTab = "summary";
         }
+        this.fetchTelemetryLogs();
       } catch (err) {
         this.error = err.message || "Failed to communicate with agent service.";
         Object.keys(this.stages).forEach((k) => {
           this.stages[k].status = "failed";
         });
+        this.fetchTelemetryLogs();
       }
     },
 
@@ -537,6 +559,53 @@ createApp({
         return (ms / 1000).toFixed(2) + " s";
       }
       return Math.round(ms) + " ms";
+    },
+
+    async fetchTelemetryLogs() {
+      try {
+        const queryParam = this.telemetryFilter !== "ALL" ? `?status=${this.telemetryFilter}` : "";
+        const res = await fetch(`/api/logs${queryParam}`);
+        if (res.ok) {
+          const data = await res.json();
+          this.telemetryStats = data.stats || this.telemetryStats;
+          this.telemetryLogs = data.logs || [];
+        }
+      } catch (err) {
+        console.warn("Failed fetching telemetry logs:", err);
+      }
+    },
+
+    setTelemetryFilter(filterName) {
+      this.telemetryFilter = filterName;
+      this.fetchTelemetryLogs();
+    },
+
+    async clearTelemetryLogs() {
+      if (!confirm("Are you sure you want to clear all telemetry and execution logs?")) return;
+      try {
+        const res = await fetch("/api/logs", { method: "DELETE" });
+        if (res.ok) {
+          this.selectedLog = null;
+          await this.fetchTelemetryLogs();
+        }
+      } catch (err) {
+        console.warn("Failed clearing logs:", err);
+      }
+    },
+
+    showLogDetail(log) {
+      this.selectedLog = log;
+    },
+
+    formatLogTime(isoStr) {
+      if (!isoStr) return "";
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) +
+               " " + d.toLocaleDateString([], { month: "short", day: "numeric" });
+      } catch (e) {
+        return isoStr;
+      }
     }
   }
 }).mount("#app");

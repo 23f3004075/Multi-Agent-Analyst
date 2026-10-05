@@ -1,0 +1,116 @@
+================================================================================
+ENTERPRISE SQL AGENT — TEST QUERIES BENCHMARK
+Dataset: Brazilian E-Commerce (Olist: 9 Tables, ~100k+ Records)
+================================================================================
+
+This file contains natural-language queries categorized by difficulty and analytical depth:
+- Section 1: Medium Queries (Multi-table joins, aggregations, date slicing)
+- Section 2: Long Queries (Multi-clause business specifications, explicit constraints)
+- Section 3: Complex Queries (Window functions, CTEs, cohorts, ranking, growth rates)
+- Section 4: Chart-Specific Prompts (Testing Bar, Line, Pie, Area, Treemap, Scatter)
+
+Copy and paste any of these questions directly into the Natural-Language Query Input box.
+
+--------------------------------------------------------------------------------
+SECTION 1: MEDIUM QUERIES (Multi-Table Joins & Grouped Aggregations)
+--------------------------------------------------------------------------------
+
+1. Top 10 product categories by total sales revenue for delivered orders : DONE
+   [Tests: orders + order_items + products + product_category, SUM(price), GROUP BY, ORDER BY, LIMIT]
+
+2. Monthly order count and total revenue generated throughout 2017 and 2018 : DONE
+   [Tests: orders + order_items, DATE_TRUNC('month'), SUM, COUNT(DISTINCT), filtering by order_status]
+
+3. What are the top 5 customer cities with the highest total order volume and their average order value?
+   [Tests: customers + orders + order_payments, GROUP BY city, COUNT(DISTINCT order_id), AVG]
+
+4. Show average freight cost and product price grouped by seller state
+   [Tests: sellers + order_items, AVG(freight_value), AVG(price), GROUP BY seller_state]
+
+5. What is the distribution of payment types by total transaction value and percentage share?
+   [Tests: order_payments, SUM(payment_value), percentage calculation, GROUP BY payment_type]
+
+6. Average delivery duration in days from purchase to customer delivery for each customer state
+   [Tests: orders + customers, DATE_DIFF('day', order_purchase_timestamp, order_delivered_customer_date)]
+
+7. List the top 10 sellers with the highest total revenue who have fulfilled at least 50 orders
+   [Tests: sellers + order_items + orders, HAVING COUNT(DISTINCT order_id) >= 50, SUM(price)]
+
+8. What is the average review score for each product category with at least 100 customer reviews?
+   [Tests: order_reviews + orders + order_items + products + product_category, AVG(review_score), HAVING]
+
+
+--------------------------------------------------------------------------------
+SECTION 2: LONG QUERIES (Multi-Constraint & Detailed Business Specifications)
+--------------------------------------------------------------------------------
+
+9. For all delivered orders in the states of São Paulo (SP) and Rio de Janeiro (RJ) between January 2017 and June 2018, show the total sales revenue, average freight cost, total orders, and average customer review score grouped by customer state.
+   [Tests: 5 tables join: orders + customers + order_items + order_reviews, multiple WHERE clauses, date range filter, state filters, composite metrics]
+
+10. Identify all high-value orders where the total payment value exceeded $500, paid using credit cards with more than 5 installments, and list the customer state, order status, total items in the order, and payment installments sorted by total payment descending.
+    [Tests: orders + order_payments + order_items + customers, multiple conditional filters, COUNT(order_item_id), payment installments condition]
+
+11. Show the top 10 product categories by total sales revenue where the average product weight is greater than 1,000 grams, including the total items sold, average item price, average freight fee, and total unique sellers involved.
+    [Tests: products + product_category + order_items, weight filter (> 1000g), COUNT(DISTINCT seller_id), multiple aggregations]
+
+12. Find the average delivery delay in days compared to the estimated delivery date for delivered orders in 2018, grouped by customer state, filtering only for states that experienced more than 50 delayed shipments.
+    [Tests: orders + customers, calculated delay (delivered_date - estimated_delivery_date), filtering delay > 0, HAVING count > 50]
+
+13. List the top 15 cities with the highest customer count, showing total registered customers, total delivered orders placed, total gross merchandise value (GMV), and average review score given by customers in those cities.
+    [Tests: customers + orders + order_items + order_reviews, multiple distinct counts, revenue aggregation, rating average, GROUP BY city]
+
+14. For the 'beleza_saude' (health & beauty) category, analyze the performance across 2017 by calculating the total revenue, number of distinct customers, number of sellers, and average days to delivery broken down by quarter.
+    [Tests: products + product_category + order_items + orders, quarterly date grouping, multiple distinct metrics, category filter]
+
+
+--------------------------------------------------------------------------------
+SECTION 3: COMPLEX QUERIES (Window Functions, CTEs, Cohorts & Advanced Analytics)
+--------------------------------------------------------------------------------
+
+15. Calculate the month-over-month revenue growth percentage and running cumulative total revenue across all completed orders in 2017 and 2018.
+    [Tests: CTE, Window functions LAG() and SUM() OVER (ORDER BY month), percentage difference calculation]
+
+16. What are the top 3 best-selling products by total revenue within each of the top 5 product categories?
+    [Tests: Multi-stage CTE, DENSE_RANK() / ROW_NUMBER() OVER (PARTITION BY category ORDER BY revenue DESC), rank filtering <= 3]
+
+17. Analyze the impact of delivery delays on customer satisfaction by comparing the average review score and 1-star review percentage between orders delivered on time versus orders delivered after the estimated delivery date.
+    [Tests: CASE statement (on-time vs delayed), AVG(review_score), SUM(CASE WHEN review_score = 1 THEN 1 ELSE 0 END) / COUNT(*), comparative cohort analysis]
+
+18. Find repeat customers: List customers who have placed 2 or more distinct orders, showing their unique customer ID, total orders placed, total lifetime spend, first order date, last order date, and days between first and last order.
+    [Tests: customers (customer_unique_id) + orders + order_items, HAVING COUNT(DISTINCT order_id) >= 2, MIN/MAX timestamps, DATE_DIFF]
+
+19. Seller fulfillment performance benchmark: Rank sellers into performance quartiles based on their average order fulfillment speed (time elapsed from order purchase timestamp to order approved timestamp and carrier handover) for sellers with at least 30 orders.
+    [Tests: sellers + orders + order_items, AVG delivery delta, NTILE(4) or RANK() window functions, HAVING filter]
+
+20. Pareto analysis: Identify the top 20% of product categories that drive 80% of total e-commerce revenue, displaying category name, category revenue, and cumulative revenue percentage.
+    [Tests: CTE, SUM() OVER (ORDER BY category_revenue DESC), cumulative share calculation, Pareto principle evaluation]
+
+21. Payment method breakdown by order size: Categorize orders into three ticket tiers (Low: < $50, Medium: $50-$200, High: > $200) and show the percentage distribution of payment types (credit card, boleto, voucher, debit card) within each ticket tier.
+    [Tests: Multi-level CTE, CASE bracket classification, COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY tier)]
+
+
+--------------------------------------------------------------------------------
+SECTION 4: CHART-SPECIFIC PROMPTS (Testing Adaptive Visualization Types)
+--------------------------------------------------------------------------------
+
+22. Show total sales revenue by product category as a horizontal bar chart
+    [Target Visual: Horizontal Bar Chart, ordered descending]
+
+23. Display the monthly order revenue trend from 2017 to 2018 as a line chart
+    [Target Visual: Line Chart / Area Chart with temporal time axis]
+
+24. Show the market share distribution of payment types as a donut pie chart
+    [Target Visual: Pie / Donut Chart with values and percentages]
+
+25. Compare customer counts across Brazilian states as a sorted vertical bar chart
+    [Target Visual: Vertical Bar Chart]
+
+26. Show product volume and average price by category as an area trend chart
+    [Target Visual: Area Chart / Stacked Visualization]
+
+27. Show relationship between freight value and product price as a scatter plot
+    [Target Visual: Scatter Plot examining freight vs price distribution]
+
+================================================================================
+END OF BENCHMARK QUERIES
+================================================================================

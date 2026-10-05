@@ -21,12 +21,20 @@ import duckdb
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.agents.graph import compile_graph, run_query
 from src.config import get_settings
+from src.observability.log_store import (
+    clear_logs,
+    export_logs_csv,
+    get_logs,
+    get_stats,
+    init_log_store,
+    record_query_log,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +85,7 @@ def get_graph():
 def prewarm_models():
     """Pre-warm LangGraph machine and embedding models to eliminate first-query latency."""
     import threading
+    init_log_store()
 
     def _warmup():
         try:
@@ -230,6 +239,23 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
         )
     except Exception as e:
         logger.exception("Error executing agent graph")
+        try:
+            record_query_log(
+                query=req.query,
+                status="FAILED",
+                model_tier="Tier 1: SLM",
+                model_used="N/A",
+                router_confidence=1.0,
+                latency_ms=0.0,
+                cost_usd=0.0,
+                retry_count=0,
+                security_check="Error",
+                row_count=0,
+                generated_sql="",
+                error_message=str(e),
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Pipeline execution error: {e}")
 
     # Process query results preview
@@ -283,6 +309,37 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
                 report_links[fmt] = f"/api/download?path={path}"
                 if fmt == "pdf":
                     report_links["pdf_inline"] = f"/api/download?path={path}&inline=true"
+
+    # Record in telemetry log store
+    guardrail_ok = raw_state.get("guardrail_passed", True)
+    has_exec_err = bool(raw_state.get("execution_error"))
+    log_status = "BLOCKED" if not guardrail_ok else ("FAILED" if has_exec_err else "SUCCESS")
+    err_msg = ""
+    if not guardrail_ok:
+        err_msg = raw_state.get("guardrail_rejection_reason", "Security check blocked query.")
+    elif has_exec_err or error_history:
+        err_msg = "\n".join(error_history) if error_history else str(raw_state.get("execution_error", ""))
+
+    tier_label = "Tier 2: Frontier" if raw_state.get("route_decision") == "TIER_2_FRONTIER" else "Tier 1: SLM"
+    sec_label = "Passed" if guardrail_ok else "Blocked"
+
+    try:
+        record_query_log(
+            query=req.query,
+            status=log_status,
+            model_tier=tier_label,
+            model_used=raw_state.get("model_used", "N/A"),
+            router_confidence=raw_state.get("route_confidence", 1.0),
+            latency_ms=raw_state.get("total_latency_ms", 0.0),
+            cost_usd=raw_state.get("total_cost_usd", 0.0),
+            retry_count=raw_state.get("retry_count", 0),
+            security_check=sec_label,
+            row_count=row_count,
+            generated_sql=raw_state.get("generated_sql", ""),
+            error_message=err_msg,
+        )
+    except Exception as log_err:
+        logger.warning("Failed to record query telemetry: %s", log_err)
 
     payload = {
         "success": raw_state.get("guardrail_passed", True) and not raw_state.get("execution_error"),
@@ -505,6 +562,43 @@ def execute_query_stream(req: QueryRequest):
                     })
 
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
+
+            # Record in telemetry log store
+            guardrail_ok = accumulated_state.get("guardrail_passed", True)
+            has_err = bool(accumulated_state.get("execution_error"))
+            log_status = "BLOCKED" if not guardrail_ok else ("FAILED" if has_err else "SUCCESS")
+
+            err_history = accumulated_state.get("error_history", [])
+            err_msg = ""
+            if not guardrail_ok:
+                err_msg = accumulated_state.get("guardrail_rejection_reason", "Security check blocked query.")
+            elif has_err or err_history:
+                err_msg = "\n".join(str(e) for e in err_history) if err_history else str(accumulated_state.get("execution_error", ""))
+
+            tier_label = "Tier 2: Frontier" if accumulated_state.get("route_decision") == "TIER_2_FRONTIER" else "Tier 1: SLM"
+            sec_label = "Passed" if guardrail_ok else "Blocked"
+
+            q_res = accumulated_state.get("query_result") or {}
+            rows_cnt = q_res.get("row_count", 0) if isinstance(q_res, dict) else 0
+
+            try:
+                record_query_log(
+                    query=req.query,
+                    status=log_status,
+                    model_tier=tier_label,
+                    model_used=accumulated_state.get("model_used", "N/A"),
+                    router_confidence=accumulated_state.get("route_confidence", 1.0),
+                    latency_ms=elapsed_ms,
+                    cost_usd=accumulated_state.get("total_cost_usd", 0.0),
+                    retry_count=accumulated_state.get("retry_count", 0),
+                    security_check=sec_label,
+                    row_count=rows_cnt,
+                    generated_sql=accumulated_state.get("generated_sql", ""),
+                    error_message=err_msg,
+                )
+            except Exception as log_err:
+                logger.warning("Failed recording streaming query telemetry: %s", log_err)
+
             event_queue.put({
                 "event": "complete",
                 "total_latency_ms": elapsed_ms,
@@ -516,6 +610,24 @@ def execute_query_stream(req: QueryRequest):
 
         except Exception as e:
             logger.exception("Error during streaming pipeline execution")
+            elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
+            try:
+                record_query_log(
+                    query=req.query,
+                    status="FAILED",
+                    model_tier="Tier 1: SLM",
+                    model_used="N/A",
+                    router_confidence=1.0,
+                    latency_ms=elapsed_ms,
+                    cost_usd=0.0,
+                    retry_count=0,
+                    security_check="Error",
+                    row_count=0,
+                    generated_sql="",
+                    error_message=str(e),
+                )
+            except Exception:
+                pass
             event_queue.put({
                 "event": "error",
                 "detail": str(e),
@@ -576,6 +688,40 @@ def download_report(
         path=str(file_path),
         filename=filename,
         media_type=media_type,
+    )
+
+
+@app.get("/api/logs")
+def fetch_logs(
+    status: Optional[str] = Query(None, description="Filter by status: SUCCESS, FAILED, BLOCKED"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict[str, Any]:
+    """Retrieve execution logs and aggregate telemetry stats."""
+    return _make_json_safe({
+        "stats": get_stats(),
+        "logs": get_logs(status=status, limit=limit, offset=offset),
+    })
+
+
+@app.delete("/api/logs")
+def remove_logs() -> dict[str, Any]:
+    """Clear all execution logs."""
+    cleared = clear_logs()
+    return {"success": cleared, "message": "Telemetry logs cleared successfully."}
+
+
+@app.get("/api/logs/export")
+def export_logs() -> Response:
+    """Export all telemetry logs as a CSV file."""
+    csv_data = export_logs_csv()
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": 'attachment; filename="query_telemetry_logs.csv"',
+            "Cache-Control": "no-cache",
+        },
     )
 
 
