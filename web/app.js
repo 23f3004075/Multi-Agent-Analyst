@@ -82,11 +82,27 @@ createApp({
         last_run_status: "IDLE"
       },
       telemetryFilter: "ALL",
-      selectedLog: null
+      selectedLog: null,
+
+      authToken: localStorage.getItem("agent_auth_token") || "",
+      currentUser: null,
+      authChecking: true,
+      authMode: "login",
+      authForm: {
+        username: "",
+        password: "",
+        displayName: ""
+      },
+      authError: null,
+      authLoading: false,
+      sessionId: localStorage.getItem("agent_session_id") || ("sess_" + Math.random().toString(36).substring(2, 9)),
+      userHistory: [],
+      historyLoading: false
     };
   },
 
   mounted() {
+    this.checkAuth();
     this.checkHealth();
     this.fetchTableCatalog();
     this.fetchTelemetryLogs();
@@ -284,14 +300,18 @@ createApp({
       const startTime = performance.now();
 
       try {
+        const reqHeaders = { "Content-Type": "application/json" };
+        if (this.authToken) {
+          reqHeaders["Authorization"] = "Bearer " + this.authToken;
+        }
+
         const response = await fetch("/api/query/stream", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
+          headers: reqHeaders,
           body: JSON.stringify({
             query: trimmed,
-            max_retries: parseInt(this.maxRetries) || 2
+            max_retries: parseInt(this.maxRetries) || 2,
+            session_id: this.sessionId
           })
         });
 
@@ -444,10 +464,18 @@ createApp({
 
     async fallbackQuery(queryText) {
       try {
+        const reqHeaders = { "Content-Type": "application/json" };
+        if (this.authToken) {
+          reqHeaders["Authorization"] = "Bearer " + this.authToken;
+        }
         const response = await fetch("/api/query", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: queryText, max_retries: parseInt(this.maxRetries) || 2 })
+          headers: reqHeaders,
+          body: JSON.stringify({
+            query: queryText,
+            max_retries: parseInt(this.maxRetries) || 2,
+            session_id: this.sessionId
+          })
         });
         if (!response.ok) {
           const errData = await response.json();
@@ -475,6 +503,7 @@ createApp({
           this.activeTab = "summary";
         }
         this.fetchTelemetryLogs();
+        this.fetchUserHistory();
       } catch (err) {
         this.error = err.message || "Failed to communicate with agent service.";
         Object.keys(this.stages).forEach((k) => {
@@ -571,6 +600,178 @@ createApp({
                " " + d.toLocaleDateString([], { month: "short", day: "numeric" });
       } catch (e) {
         return isoStr;
+      }
+    },
+
+    async checkAuth() {
+      if (!this.authToken) {
+        this.authChecking = false;
+        return;
+      }
+      try {
+        const res = await fetch("/api/auth/me", {
+          headers: { "Authorization": "Bearer " + this.authToken }
+        });
+        if (res.ok) {
+          const user = await res.json();
+          this.currentUser = user;
+          this.fetchUserHistory();
+        } else {
+          this.authToken = "";
+          this.currentUser = null;
+          localStorage.removeItem("agent_auth_token");
+        }
+      } catch (err) {
+        console.warn("Auth check error:", err);
+      } finally {
+        this.authChecking = false;
+      }
+    },
+
+    async handleLogin() {
+      this.authError = null;
+      if (!this.authForm.username || !this.authForm.password) {
+        this.authError = "Please enter both username and password.";
+        return;
+      }
+      this.authLoading = true;
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: this.authForm.username,
+            password: this.authForm.password
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Invalid login credentials.");
+        }
+        this.authToken = data.token;
+        this.currentUser = data.user;
+        localStorage.setItem("agent_auth_token", data.token);
+        this.authForm.password = "";
+        this.fetchUserHistory();
+      } catch (err) {
+        this.authError = err.message || "Failed to log in.";
+      } finally {
+        this.authLoading = false;
+      }
+    },
+
+    async handleRegister() {
+      this.authError = null;
+      if (!this.authForm.username || !this.authForm.password) {
+        this.authError = "Please enter username and password.";
+        return;
+      }
+      this.authLoading = true;
+      try {
+        const res = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: this.authForm.username,
+            password: this.authForm.password,
+            display_name: this.authForm.displayName || this.authForm.username
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Registration failed.");
+        }
+        this.authToken = data.token;
+        this.currentUser = data.user;
+        localStorage.setItem("agent_auth_token", data.token);
+        this.authForm.password = "";
+        this.fetchUserHistory();
+      } catch (err) {
+        this.authError = err.message || "Failed to register account.";
+      } finally {
+        this.authLoading = false;
+      }
+    },
+
+    async handleLogout() {
+      try {
+        if (this.authToken) {
+          await fetch("/api/auth/logout", {
+            method: "POST",
+            headers: { "Authorization": "Bearer " + this.authToken }
+          });
+        }
+      } catch (e) {
+        // ignore
+      }
+      this.authToken = "";
+      this.currentUser = null;
+      this.userHistory = [];
+      localStorage.removeItem("agent_auth_token");
+    },
+
+    quickDemoLogin(role) {
+      if (role === "admin") {
+        this.authForm.username = "admin";
+        this.authForm.password = "admin123";
+      } else {
+        this.authForm.username = "demo";
+        this.authForm.password = "demo123";
+      }
+      this.handleLogin();
+    },
+
+    startNewSession() {
+      this.sessionId = "sess_" + Math.random().toString(36).substring(2, 9);
+      localStorage.setItem("agent_session_id", this.sessionId);
+      this.query = "";
+      this.resetStages();
+      this.error = null;
+    },
+
+    async fetchUserHistory() {
+      if (!this.authToken) return;
+      this.historyLoading = true;
+      try {
+        const res = await fetch("/api/user/history?limit=100", {
+          headers: { "Authorization": "Bearer " + this.authToken }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          this.userHistory = data.history || [];
+        }
+      } catch (err) {
+        console.warn("Failed fetching user history:", err);
+      } finally {
+        this.historyLoading = false;
+      }
+    },
+
+    async clearMyHistory() {
+      if (!confirm("Are you sure you want to clear your session and query history?")) return;
+      try {
+        const res = await fetch("/api/user/history", {
+          method: "DELETE",
+          headers: { "Authorization": "Bearer " + this.authToken }
+        });
+        if (res.ok) {
+          this.userHistory = [];
+        }
+      } catch (err) {
+        console.warn("Failed clearing history:", err);
+      }
+    },
+
+    loadHistoryItem(item) {
+      this.query = item.query;
+      if (item.result && (item.result.data || item.result.generated_sql || item.result.final_response)) {
+        this.result = Object.assign({}, this.result, item.result);
+        this.chartOptions = item.result.chart_options || [];
+        this.selectedChartIndex = 0;
+        Object.keys(this.stages).forEach((k) => {
+          this.stages[k].status = "done";
+        });
+        this.setTab("summary");
       }
     }
   }

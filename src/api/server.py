@@ -9,13 +9,23 @@ from typing import Any, Optional
 
 import duckdb
 import pandas as pd
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.agents.graph import compile_graph, run_query
+from src.auth.store import (
+    authenticate_user,
+    clear_user_history,
+    get_user_by_token,
+    get_user_history,
+    init_user_store,
+    logout_user,
+    register_user,
+    save_user_history,
+)
 from src.config import get_settings
 from src.observability.log_store import (
     clear_logs,
@@ -71,6 +81,7 @@ def get_graph():
 def prewarm_models():
     import threading
     init_log_store()
+    init_user_store()
 
     def _warmup():
         try:
@@ -88,6 +99,20 @@ def prewarm_models():
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="Natural-language question")
     max_retries: int = Field(default=2, ge=0, le=5, description="Maximum self-healing retries")
+    session_id: Optional[str] = Field(default=None, description="Client session identifier")
+
+
+class AuthRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=128)
+    display_name: Optional[str] = Field(default=None, max_length=64)
+
+
+def _get_user_from_header(authorization: Optional[str]) -> Optional[dict[str, Any]]:
+    if not authorization:
+        return None
+    token = authorization.replace("Bearer ", "").strip()
+    return get_user_by_token(token)
 
 
 def _strip_emojis(text: str) -> str:
@@ -201,8 +226,70 @@ def get_tables_preview() -> dict[str, Any]:
         raise HTTPException(status_code=500, detail=f"Failed generating table previews: {e}")
 
 
+@app.post("/api/auth/register")
+def api_register(req: AuthRequest) -> dict[str, Any]:
+    try:
+        res = register_user(req.username, req.password, req.display_name)
+        return _make_json_safe(res)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Registration failed: %s", e)
+        raise HTTPException(status_code=500, detail="Registration failed.")
+
+
+@app.post("/api/auth/login")
+def api_login(req: AuthRequest) -> dict[str, Any]:
+    try:
+        res = authenticate_user(req.username, req.password)
+        return _make_json_safe(res)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        logger.exception("Login failed: %s", e)
+        raise HTTPException(status_code=500, detail="Authentication failed.")
+
+
+@app.get("/api/auth/me")
+def api_me(authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return _make_json_safe(user)
+
+
+@app.post("/api/auth/logout")
+def api_logout(authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    if authorization:
+        token = authorization.replace("Bearer ", "").strip()
+        logout_user(token)
+    return {"success": True}
+
+
+@app.get("/api/user/history")
+def api_user_history(
+    limit: int = Query(50, ge=1, le=200),
+    authorization: Optional[str] = Header(None),
+) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    history = get_user_history(user["id"], limit=limit)
+    return _make_json_safe({"history": history})
+
+
+@app.delete("/api/user/history")
+def api_clear_user_history(authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    clear_user_history(user["id"])
+    return {"success": True, "message": "User history cleared."}
+
+
 @app.post("/api/query")
-def execute_query(req: QueryRequest) -> dict[str, Any]:
+def execute_query(req: QueryRequest, authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
     graph = get_graph()
 
     try:
@@ -333,11 +420,29 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
         },
         "reports": report_links,
     }
+
+    if user:
+        try:
+            save_user_history(
+                user_id=user["id"],
+                session_id=req.session_id or "default",
+                query=req.query,
+                status=log_status,
+                route_decision=raw_state.get("route_decision", "TIER_1_SLM"),
+                model_used=raw_state.get("model_used", "N/A"),
+                generated_sql=raw_state.get("generated_sql", ""),
+                summary=clean_response,
+                result_json=json.dumps(_make_json_safe(payload)),
+            )
+        except Exception as hist_err:
+            logger.warning("Failed saving user history: %s", hist_err)
+
     return _make_json_safe(payload)
 
 
 @app.post("/api/query/stream")
-def execute_query_stream(req: QueryRequest):
+def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Header(None)):
+    user = _get_user_from_header(authorization)
     import queue
     import threading
     import time
@@ -543,6 +648,40 @@ def execute_query_stream(req: QueryRequest):
                 )
             except Exception as log_err:
                 logger.warning("Failed recording streaming query telemetry: %s", log_err)
+
+            if user:
+                try:
+                    summary_text = ""
+                    analysis_data = accumulated_state.get("analysis")
+                    if isinstance(analysis_data, dict):
+                        summary_text = analysis_data.get("summary", "")
+                    elif isinstance(analysis_data, str):
+                        summary_text = analysis_data
+                    if not summary_text:
+                        summary_text = accumulated_state.get("final_response", "")
+
+                    save_user_history(
+                        user_id=user["id"],
+                        session_id=req.session_id or "default",
+                        query=req.query,
+                        status=log_status,
+                        route_decision=accumulated_state.get("route_decision", "TIER_1_SLM"),
+                        model_used=accumulated_state.get("model_used", "N/A"),
+                        generated_sql=accumulated_state.get("generated_sql", ""),
+                        summary=summary_text,
+                        result_json=json.dumps(_make_json_safe({
+                            "route_decision": accumulated_state.get("route_decision", "TIER_1_SLM"),
+                            "model_used": accumulated_state.get("model_used", "N/A"),
+                            "generated_sql": accumulated_state.get("generated_sql", ""),
+                            "final_response": accumulated_state.get("final_response", ""),
+                            "summary": summary_text,
+                            "total_cost_usd": accumulated_state.get("total_cost_usd", 0.0),
+                            "total_latency_ms": elapsed_ms,
+                            "retry_count": accumulated_state.get("retry_count", 0),
+                        })),
+                    )
+                except Exception as hist_err:
+                    logger.warning("Failed recording streaming user history: %s", hist_err)
 
             event_queue.put({
                 "event": "complete",

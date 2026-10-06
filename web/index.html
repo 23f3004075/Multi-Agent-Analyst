@@ -22,32 +22,174 @@
 </head>
 <body>
   <div id="app">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-3">
-      <div class="container-fluid px-4">
-        <a class="navbar-brand d-flex align-items-center" href="#">
-          <span class="fs-5 fw-bold">Enterprise SQL Agent</span>
-          <span class="badge bg-secondary ms-3 system-badge">Production BI Engine</span>
-        </a>
-        <div class="d-flex align-items-center gap-3">
+    <div v-if="authChecking" class="d-flex align-items-center justify-content-center vh-100 bg-dark text-light">
+      <div class="text-center">
+        <div class="spinner-border text-info mb-3" role="status"></div>
+        <div class="small text-muted">Checking authentication session...</div>
+      </div>
+    </div>
+
+    <div v-else-if="!currentUser" class="auth-overlay">
+      <div class="auth-card">
+        <div class="text-center mb-4">
+          <span class="auth-brand-badge">Enterprise SQL Agent</span>
+          <h4 class="fw-bold mb-1">Autonomous Analytics</h4>
+          <p class="text-muted small mb-0">Sign in to start your analytical workspace session</p>
+        </div>
+
+        <div class="auth-tabs">
           <button
             type="button"
-            class="telemetry-nav-btn d-flex align-items-center gap-2"
-            @click="setTab('telemetry')"
-            title="Inspect Model Tier, Latency, Cost, Security, Retries, and Failure Stats"
+            class="auth-tab-btn"
+            :class="{ active: authMode === 'login' }"
+            @click="authMode = 'login'; authError = null"
           >
-            <span class="status-dot" :class="telemetryStats.failed_count > 0 ? 'status-dot-error' : 'status-dot-active'"></span>
-            <span>Telemetry: <strong>{{ telemetryStats.total_queries }} Runs</strong></span>
-            <span v-if="telemetryStats.failed_count > 0" class="badge bg-danger ms-1">{{ telemetryStats.failed_count }} Failed</span>
+            Sign In
           </button>
-          <div class="d-flex align-items-center">
-            <span class="status-dot" :class="health.status === 'healthy' ? 'status-dot-active' : 'status-dot-error'"></span>
-            <span class="text-light small">
-              Database: {{ health.status === 'healthy' ? health.table_count + ' Tables Active' : 'Disconnected' }}
-            </span>
+          <button
+            type="button"
+            class="auth-tab-btn"
+            :class="{ active: authMode === 'register' }"
+            @click="authMode = 'register'; authError = null"
+          >
+            Create Account
+          </button>
+        </div>
+
+        <div v-if="authError" class="alert alert-danger py-2 px-3 small mb-3">
+          {{ authError }}
+        </div>
+
+        <form @submit.prevent="authMode === 'login' ? handleLogin() : handleRegister()">
+          <div class="mb-3">
+            <label class="form-label small text-muted">Username</label>
+            <input
+              type="text"
+              v-model="authForm.username"
+              class="form-control auth-input"
+              placeholder="e.g. admin or analyst"
+              required
+              autofocus
+            />
+          </div>
+
+          <div v-if="authMode === 'register'" class="mb-3">
+            <label class="form-label small text-muted">Display Name</label>
+            <input
+              type="text"
+              v-model="authForm.displayName"
+              class="form-control auth-input"
+              placeholder="e.g. Jane Doe"
+            />
+          </div>
+
+          <div class="mb-4">
+            <label class="form-label small text-muted">Password</label>
+            <input
+              type="password"
+              v-model="authForm.password"
+              class="form-control auth-input"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            class="btn btn-primary w-100 fw-semibold py-2"
+            :disabled="authLoading"
+          >
+            <span v-if="authLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+            {{ authMode === 'login' ? 'Sign In to Workspace' : 'Create Account & Sign In' }}
+          </button>
+        </form>
+
+        <div class="auth-demo-box">
+          <div class="small fw-semibold text-muted mb-2">Quick Demo Access:</div>
+          <div class="d-flex gap-2">
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-light w-50"
+              @click="quickDemoLogin('admin')"
+              :disabled="authLoading"
+            >
+              Admin Demo
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-light w-50"
+              @click="quickDemoLogin('demo')"
+              :disabled="authLoading"
+            >
+              Analyst Demo
+            </button>
+          </div>
+          <div class="text-muted text-center mt-2" style="font-size: 0.72rem;">
+            Default accounts: <code>admin / admin123</code> or <code>demo / demo123</code>
           </div>
         </div>
       </div>
-    </nav>
+    </div>
+
+    <div v-else>
+      <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-3">
+        <div class="container-fluid px-4">
+          <a class="navbar-brand d-flex align-items-center" href="#">
+            <span class="fs-5 fw-bold">Enterprise SQL Agent</span>
+            <span class="badge bg-secondary ms-3 system-badge">Production BI Engine</span>
+          </a>
+          <div class="d-flex align-items-center gap-3">
+            <button
+              type="button"
+              class="telemetry-nav-btn d-flex align-items-center gap-2"
+              @click="setTab('telemetry')"
+              title="Inspect Model Tier, Latency, Cost, Security, Retries, and Failure Stats"
+            >
+              <span class="status-dot" :class="telemetryStats.failed_count > 0 ? 'status-dot-error' : 'status-dot-active'"></span>
+              <span>Telemetry: <strong>{{ telemetryStats.total_queries }} Runs</strong></span>
+              <span v-if="telemetryStats.failed_count > 0" class="badge bg-danger ms-1">{{ telemetryStats.failed_count }} Failed</span>
+            </button>
+
+            <button
+              type="button"
+              class="telemetry-nav-btn d-flex align-items-center gap-2"
+              @click="setTab('history')"
+              title="View your saved session queries"
+            >
+              <span>Sessions: <strong>{{ userHistory.length }} Saved</strong></span>
+            </button>
+
+            <div class="d-flex align-items-center">
+              <span class="status-dot" :class="health.status === 'healthy' ? 'status-dot-active' : 'status-dot-error'"></span>
+              <span class="text-light small">
+                Database: {{ health.status === 'healthy' ? health.table_count + ' Tables Active' : 'Disconnected' }}
+              </span>
+            </div>
+
+            <div class="user-nav-chip ms-2">
+              <span class="fw-semibold">{{ currentUser.display_name || currentUser.username }}</span>
+              <span class="session-indicator-badge" title="Active Session ID">#{{ sessionId }}</span>
+              <button
+                type="button"
+                class="btn btn-xs btn-outline-info ms-1"
+                @click="startNewSession"
+                title="Start a fresh analysis session"
+              >
+                New Session
+              </button>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-xs btn-outline-danger"
+              @click="handleLogout"
+              title="Sign Out"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </nav>
 
     <div class="container-fluid px-4 py-4">
       <div class="row g-4">
@@ -185,6 +327,15 @@
             >
               <span class="indicator-dot"></span>
               <span>Export Reports: {{ stages.reports.status.toUpperCase() }}</span>
+            </div>
+
+            <div
+              class="stage-badge"
+              :class="{ 'active-stage': activeTab === 'history' }"
+              @click="setTab('history')"
+            >
+              <span class="indicator-dot"></span>
+              <span>My Sessions & History ({{ userHistory.length }})</span>
             </div>
           </div>
         </div>
@@ -730,6 +881,78 @@
                     </div>
                     <div class="text-muted" style="font-size: 0.75rem;">
                       Rows returned: {{ selectedLog.row_count }} | Timestamp: {{ selectedLog.timestamp }}
+                    </div>
+                  </div>
+                </div>
+
+                <div v-if="activeTab === 'history'" class="card card-custom">
+                  <div class="card-header-custom d-flex justify-content-between align-items-center">
+                    <div>
+                      <span class="fw-bold">My Session & Query History</span>
+                      <span class="badge bg-secondary ms-2">{{ userHistory.length }} Recorded</span>
+                    </div>
+                    <div class="d-flex gap-2">
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-info"
+                        @click="startNewSession"
+                      >
+                        Start New Session
+                      </button>
+                      <button
+                        type="button"
+                        class="btn btn-sm btn-outline-danger"
+                        @click="clearMyHistory"
+                        :disabled="userHistory.length === 0"
+                      >
+                        Clear History
+                      </button>
+                    </div>
+                  </div>
+                  <div class="card-body p-3">
+                    <div v-if="userHistory.length === 0" class="text-center py-5 text-muted">
+                      <div class="mb-2">No queries recorded in your history yet.</div>
+                      <div class="small">Submit your first question in the Query Studio to store session results.</div>
+                    </div>
+                    <div v-else>
+                      <div v-for="item in userHistory" :key="item.id" class="session-history-card">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                          <div>
+                            <span
+                              class="badge me-2"
+                              :class="item.status === 'SUCCESS' ? 'bg-success' : (item.status === 'BLOCKED' ? 'bg-warning text-dark' : 'bg-danger')"
+                              style="font-size: 0.72rem;"
+                            >
+                              {{ item.status }}
+                            </span>
+                            <span class="session-indicator-badge me-2">#{{ item.session_id }}</span>
+                            <span
+                              class="badge"
+                              :class="item.route_decision === 'TIER_2_FRONTIER' ? 'badge-tier-frontier' : 'badge-tier-slm'"
+                              style="font-size: 0.72rem;"
+                            >
+                              {{ item.route_decision === 'TIER_2_FRONTIER' ? 'Tier 2: Frontier' : 'Tier 1: SLM' }}
+                            </span>
+                          </div>
+                          <span class="small text-muted">{{ formatLogTime(item.created_at) }}</span>
+                        </div>
+                        <h6 class="fw-bold mb-2">{{ item.query }}</h6>
+                        <p v-if="item.summary" class="small text-muted mb-2 text-truncate" style="max-height: 40px;">
+                          {{ item.summary }}
+                        </p>
+                        <div v-if="item.generated_sql" class="code-block p-2 mb-2" style="font-size: 0.78rem; max-height: 80px; overflow-y: auto;">
+                          <code>{{ item.generated_sql }}</code>
+                        </div>
+                        <div class="d-flex justify-content-end gap-2 pt-2 border-top">
+                          <button
+                            type="button"
+                            class="btn btn-xs btn-outline-primary"
+                            @click="loadHistoryItem(item)"
+                          >
+                            Load into Workspace
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
