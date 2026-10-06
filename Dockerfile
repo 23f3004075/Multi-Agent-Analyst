@@ -20,7 +20,7 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir uv
 
-COPY pyproject.toml uv.lock ./
+COPY pyproject.toml uv.lock README.md ./
 
 RUN uv sync --frozen --no-dev --no-install-project
 
@@ -29,9 +29,11 @@ COPY data/ ./data/
 COPY web/ ./web/
 COPY ui/ ./ui/
 
-RUN uv run python data/seed_olist.py
+ENV PYTHONPATH="/app"
+
+RUN uv run --no-project python data/seed_olist.py
 
 ENV PORT=10000
 EXPOSE 10000
 
-CMD ["sh", "-c", "uv run uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-10000}"]
+CMD ["sh", "-c", "uv run --no-project uvicorn src.api.server:app --host 0.0.0.0 --port ${PORT:-10000}"]
