@@ -1,5 +1,9 @@
 # Enterprise Multi-Agent SQL Analyst & Autonomous BI Engine
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Render-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://multi-agent-analyst-vdmr.onrender.com/)
+
+**Live Application**: [https://multi-agent-analyst-vdmr.onrender.com/](https://multi-agent-analyst-vdmr.onrender.com/)
+
 An enterprise-grade Natural-Language-to-SQL (NL-to-SQL) and autonomous Business Intelligence engine featuring adaptive model routing, AST-verified sandboxed execution, self-healing query correction, and multi-modal report generation.
 
 ---

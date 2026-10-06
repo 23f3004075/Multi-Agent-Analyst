@@ -10,3 +10,7 @@ outputs
 .env.*
 *.log
 eval
+data/*.db
+data/*.db-wal
+data/*.db-shm
+*.db

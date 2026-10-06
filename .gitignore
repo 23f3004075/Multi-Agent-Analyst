@@ -27,9 +27,13 @@ env/
 .DS_Store
 Thumbs.db
 
-# ── DuckDB ──
+# ── Databases ──
 data/analytics.duckdb
 data/analytics.duckdb.wal
+data/query_telemetry.db*
+data/*.db
+data/*.db-wal
+data/*.db-shm
 data/*.parquet
 
 # ── Generated Outputs ──
