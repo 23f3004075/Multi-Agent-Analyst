@@ -1,10 +1,3 @@
-"""
-Analysis Node — Data Interpretation and Sanity Checks.
-
-Computes summary statistics, detects anomalies, performs sanity
-checks, and generates a structured analysis via LLM.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,11 +24,6 @@ def _get_client() -> LLMClient:
 
 
 def analysis_node(state: AgentState) -> dict[str, Any]:
-    """
-    Analyze query results: sanity checks + LLM-powered interpretation.
-
-    Produces: analysis, sanity_check_passed, sanity_check_warning
-    """
     result = state.get("query_result")
 
     if not result:
@@ -101,12 +89,6 @@ def analysis_node(state: AgentState) -> dict[str, Any]:
 
 
 def _run_sanity_checks(result: dict) -> tuple[bool, str | None]:
-    """
-    Run basic sanity checks on query results.
-
-    Catches: zero rows, all NULLs, absurd magnitudes.
-    Returns: (passed, warning_message)
-    """
     row_count = result.get("row_count", 0)
 
     if row_count == 0:

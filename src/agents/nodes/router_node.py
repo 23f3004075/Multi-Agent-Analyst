@@ -1,10 +1,3 @@
-"""
-Router Node — Schema Linking + Complexity Routing.
-
-Links the query to relevant tables, retrieves metric context from the
-semantic layer, and routes to the appropriate model tier.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -27,7 +20,6 @@ _inspector: SchemaInspector | None = None
 
 
 def _get_components() -> tuple[SchemaLinker, QueryRouter, SemanticLayer, SchemaInspector]:
-    """Lazy-initialize shared components."""
     global _schema_linker, _router, _semantic_layer, _inspector
 
     settings = get_settings()
@@ -50,13 +42,6 @@ def _get_components() -> tuple[SchemaLinker, QueryRouter, SemanticLayer, SchemaI
 
 
 def router_node(state: AgentState) -> dict[str, Any]:
-    """
-    Link schema, resolve metrics, and route the query.
-
-    Produces: route_decision, route_confidence, linked_tables,
-              linked_ddl, metric_context, ambiguity_flag,
-              interpretation_note
-    """
     query = state.get("cleaned_query") or state.get("user_query", "")
     logger.info("Routing query: '%s'", query[:80])
 

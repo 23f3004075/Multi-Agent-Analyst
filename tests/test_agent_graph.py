@@ -1,14 +1,3 @@
-"""
-Integration and State Machine Tests for the LangGraph SQL Agent.
-
-Covers:
-    - Graph compilation and structural topology
-    - Security guardrail rejection path (input sanitizer -> terminal_reject)
-    - Self-healing retry loop and tier escalation (Tier 1 -> Tier 2)
-    - Terminal error handling after max retries
-    - Complexity routing and schema linking
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -20,8 +9,6 @@ from src.agents.nodes.terminal_error_node import terminal_error_node
 from src.agents.state import AgentState
 
 class TestAgentGraphStructure:
-    """Validate state machine compilation and node definitions."""
-
     def test_graph_compilation(self) -> None:
         graph = compile_graph()
         expected_nodes = {
@@ -42,8 +29,6 @@ class TestAgentGraphStructure:
         assert expected_nodes.issubset(set(graph.nodes.keys()))
 
 class TestSecurityGuardrailFlow:
-    """Ensure security boundary immediately terminates malicious prompts."""
-
     def test_sql_injection_rejection(self) -> None:
         result = run_query("DROP TABLE orders;")
         assert result.get("guardrail_passed") is False
@@ -60,8 +45,6 @@ class TestSecurityGuardrailFlow:
         assert result.get("guardrail_passed") is False
 
 class TestSelfHealingAndEscalation:
-    """Verify self-healing logic, retry tracking, and model escalation."""
-
     def test_heal_escalates_tier_1_to_tier_2(self) -> None:
         initial_state: AgentState = {
             "user_query": "What are top products?",
@@ -111,8 +94,6 @@ class TestSelfHealingAndEscalation:
         assert "Error 2" in response
 
 class TestRouterNode:
-    """Verify schema linking and routing decision boundaries."""
-
     def test_router_node_schema_linking(self) -> None:
         state: AgentState = {
             "user_query": "Show total revenue and delivered order status for customers in SP",

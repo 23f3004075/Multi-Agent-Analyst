@@ -1,11 +1,3 @@
-"""
-Unified LLM Client.
-
-Wraps OpenRouter (via OpenAI SDK) and LiteLLM fallback to provide
-reliable LLM calls across model tiers with multi-candidate fallbacks,
-reasoning token support, and automatic token/cost tracking.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -25,8 +17,6 @@ litellm.suppress_debug_info = True
 
 @dataclass
 class LLMResponse:
-    """Structured response from an LLM invocation."""
-
     content: str
     model_used: str
     tier: str
@@ -41,13 +31,6 @@ class LLMResponse:
 
 
 class LLMClient:
-    """
-    Unified LLM client wrapping OpenRouter (via OpenAI SDK) and LiteLLM.
-
-    Supports OpenRouter reasoning models (e.g. nvidia/nemotron-3-ultra-550b-a55b:free)
-    with extra_body={"reasoning": {"enabled": True}} and multi-turn reasoning_details.
-    """
-
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._cumulative_cost: float = 0.0
@@ -74,11 +57,6 @@ class LLMClient:
         timeout: float = 30.0,
         reasoning: Optional[bool] = None,
     ) -> LLMResponse:
-        """
-        Generate a completion from the appropriate model.
-
-        Supports single prompt/system or pre-assembled messages with reasoning_details.
-        """
         primary_model = self._resolve_model(model_tier)
         fallback_model = self._resolve_fallback_model(model_tier)
         pool_models = getattr(self._settings, "fallback_models_pool", [])
@@ -279,7 +257,6 @@ class LLMClient:
         raise RuntimeError(f"All LLM candidates failed for tier {model_tier}: {candidate_models}")
 
     def _resolve_model(self, model_tier: str) -> str:
-        """Resolve a tier name to a concrete model identifier."""
         if model_tier == "tier1":
             return self._settings.tier1_model
         elif model_tier == "tier2":
@@ -290,7 +267,6 @@ class LLMClient:
             return model_tier
 
     def _resolve_fallback_model(self, model_tier: str) -> str:
-        """Resolve a tier name to a fallback model identifier."""
         if model_tier == "tier1":
             return self._settings.tier1_fallback_model
         elif model_tier == "tier2":
@@ -299,7 +275,6 @@ class LLMClient:
 
     @staticmethod
     def _calculate_cost(response: Any) -> float:
-        """Extract cost from LiteLLM response metadata."""
         try:
             cost = litellm.completion_cost(completion_response=response)
             return float(cost) if cost else 0.0
@@ -308,10 +283,8 @@ class LLMClient:
 
     @property
     def cumulative_cost(self) -> float:
-        """Total cost across all invocations in this session."""
         return self._cumulative_cost
 
     @property
     def invocation_count(self) -> int:
-        """Number of LLM invocations in this session."""
         return self._invocation_count

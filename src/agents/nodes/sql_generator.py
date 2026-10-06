@@ -1,10 +1,3 @@
-"""
-SQL Generator Node — Generates SQL via the routed model tier.
-
-Calls the LLM with schema DDL, metric context, and the user query.
-For self-healing retries, includes error context and prior attempts.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -32,15 +25,6 @@ def _get_client() -> LLMClient:
 
 
 def _extract_sql(raw: str) -> str:
-    """
-    Extract SQL from LLM response, stripping markdown fences and explanation.
-
-    Handles common patterns:
-        - ```sql\nSELECT...\n```
-        - ```\nSELECT...\n```
-        - Trailing explanations with or without semicolon
-        - Just the raw SQL
-    """
     import sqlglot
 
     fences = re.findall(r"```(?:sql)?\s*([\s\S]*?)\s*```", raw, re.IGNORECASE)
@@ -92,11 +76,6 @@ def _extract_sql(raw: str) -> str:
 
 
 def sql_generator_node(state: AgentState) -> dict[str, Any]:
-    """
-    Generate SQL using the routed model tier.
-
-    Produces: generated_sql, model_used, total_cost_usd
-    """
     query = state["cleaned_query"]
     tier = state["route_decision"]
     ddl = state["linked_ddl"]

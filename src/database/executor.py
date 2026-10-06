@@ -1,23 +1,3 @@
-"""
-Sandboxed SQL Query Executor.
-
-Executes validated SQL against a hardened DuckDB connection with:
-    - conn.interrupt() watchdog for real timeout enforcement
-    - QueryResult reference type (Parquet file + metadata, NOT raw data in state)
-    - Automatic truncation detection (fetches N+1 rows)
-    - Summary statistics computation for LLM context
-
-The executor does NOT validate SQL — that's the AST checker's job.
-It assumes the SQL has already passed the allowlist validator.
-
-Usage:
-    from src.database.executor import SandboxedExecutor, QueryResult
-
-    executor = SandboxedExecutor(settings)
-    result: QueryResult = executor.execute("SELECT * FROM orders LIMIT 100")
-    print(result.row_count, result.schema, result.sample_rows)
-"""
-
 from __future__ import annotations
 
 import logging
@@ -39,17 +19,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class QueryResult:
-    """
-    Lightweight query result reference.
-
-    Stores a path to the full result (Parquet) plus metadata summary.
-    This keeps the LangGraph state checkpoint small (~2 KB) instead of
-    serializing entire DataFrames (~10-50 MB for 5000 rows).
-
-    The Parquet file can be read by downstream nodes (visualizer, report
-    builder) without passing through the state serialization layer.
-    """
-
     result_id: str
     parquet_path: str
     schema: list[dict[str, str]]
@@ -60,13 +29,6 @@ class QueryResult:
     summary_stats: dict[str, Any]
 
     def to_llm_context(self) -> str:
-        """
-        Format result metadata for LLM prompt injection.
-
-        Returns a compact string with schema, sample, and stats —
-        everything the LLM needs for analysis and chart generation
-        without seeing all 5000 rows.
-        """
         lines = [
             f"Query returned {self.row_count} rows × {self.column_count} columns.",
         ]
@@ -93,8 +55,6 @@ class QueryResult:
 
 @dataclass
 class ExecutionError:
-    """Structured error from a failed query execution."""
-
     error_type: str
     message: str
     sql: str
@@ -102,17 +62,6 @@ class ExecutionError:
 
 
 class SandboxedExecutor:
-    """
-    Executes SQL in a security-hardened DuckDB sandbox.
-
-    Key design decisions:
-    1. Uses conn.interrupt() for REAL timeout enforcement (not just
-       thread abandonment like concurrent.futures).
-    2. Returns QueryResult references, not raw DataFrames.
-    3. Detects truncation by fetching max_rows+1.
-    4. Computes summary stats for LLM context.
-    """
-
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._temp_dir = Path(tempfile.mkdtemp(prefix="sql_agent_results_"))
@@ -125,21 +74,6 @@ class SandboxedExecutor:
         conn: duckdb.DuckDBPyConnection | None = None,
         timeout_seconds: float | None = None,
     ) -> QueryResult:
-        """
-        Execute SQL with watchdog-based timeout and return a QueryResult.
-
-        Args:
-            sql: The SQL query to execute (must have passed AST validation).
-            conn: Optional pre-existing connection. If None, creates a new one.
-            timeout_seconds: Override for query timeout. Defaults to settings.
-
-        Returns:
-            QueryResult with Parquet reference and metadata.
-
-        Raises:
-            TimeoutError: Query exceeded the timeout.
-            ExecutionError: Query failed at runtime.
-        """
         timeout = timeout_seconds or self._settings.db_query_timeout_seconds
         owns_conn = conn is None
 
@@ -159,15 +93,6 @@ class SandboxedExecutor:
         sql: str,
         timeout: float,
     ) -> pd.DataFrame:
-        """
-        Execute SQL with a watchdog thread that calls conn.interrupt()
-        on timeout — providing REAL query cancellation.
-
-        Unlike concurrent.futures timeout (which just abandons the Python
-        thread while the C++ query engine continues consuming resources),
-        conn.interrupt() sends a cancellation signal to DuckDB's execution
-        engine, which terminates the query and frees resources.
-        """
         result_container: dict[str, pd.DataFrame] = {}
         error_container: dict[str, Exception] = {}
         execution_done = threading.Event()
@@ -181,7 +106,6 @@ class SandboxedExecutor:
                 execution_done.set()
 
         def _watchdog() -> None:
-            """Wait for timeout, then interrupt if query is still running."""
             if not execution_done.wait(timeout=timeout):
                 logger.warning(
                     "Query timeout (%.1fs) — sending conn.interrupt()", timeout
@@ -217,13 +141,6 @@ class SandboxedExecutor:
         return result_container["df"]
 
     def _build_result(self, df: pd.DataFrame, sql: str) -> QueryResult:
-        """
-        Convert a pandas DataFrame into a QueryResult reference.
-
-        1. Detect truncation (if row_count == max_result_rows)
-        2. Save full DataFrame to Parquet
-        3. Extract schema, sample, and summary stats
-        """
         max_rows = self._settings.db_max_result_rows
         truncated = len(df) >= max_rows
 
@@ -262,12 +179,6 @@ class SandboxedExecutor:
 
     @staticmethod
     def _compute_summary_stats(df: pd.DataFrame) -> dict[str, Any]:
-        """
-        Compute summary statistics for numeric columns.
-
-        These stats are passed to the LLM for narration and anomaly
-        detection — the LLM never sees the full dataset.
-        """
         stats: dict[str, Any] = {}
 
         for col in df.select_dtypes(include=["number"]).columns:
@@ -300,7 +211,6 @@ class SandboxedExecutor:
         return stats
 
     def cleanup(self) -> None:
-        """Remove all temporary Parquet files."""
         import shutil
 
         if self._temp_dir.exists():

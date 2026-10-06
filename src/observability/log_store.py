@@ -1,20 +1,3 @@
-"""
-Enterprise SQL Agent — Observability & Telemetry Log Store.
-
-Persists comprehensive metrics for every query execution:
-    - Model Tier (Tier 1: SLM vs Tier 2: Frontier)
-    - Router Confidence (%)
-    - Total Latency (ms / s)
-    - Total Cost ($)
-    - Retry Attempts
-    - Security Check (Passed vs Blocked)
-    - Execution Status (SUCCESS, FAILED, BLOCKED)
-    - Error History / Failure Details
-    - Generated SQL & Rows Returned
-
-Storage: Embedded thread-safe SQLite database at data/query_telemetry.db
-"""
-
 from __future__ import annotations
 
 import csv
@@ -37,7 +20,6 @@ _lock = threading.Lock()
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Return a configured SQLite connection with WAL mode enabled."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=15.0)
     conn.row_factory = sqlite3.Row
@@ -47,7 +29,6 @@ def _get_connection() -> sqlite3.Connection:
 
 
 def init_log_store() -> None:
-    """Initialize telemetry tables and schema indices."""
     with _lock:
         conn = _get_connection()
         try:
@@ -100,11 +81,6 @@ def record_query_log(
     generated_sql: str = "",
     error_message: str = "",
 ) -> int:
-    """
-    Record an execution event in the telemetry store.
-    
-    Status should be one of: 'SUCCESS', 'FAILED', 'BLOCKED'.
-    """
     now_iso = datetime.now(timezone.utc).isoformat()
     clean_query = query.strip()
     clean_sql = (generated_sql or "").strip()
@@ -161,7 +137,6 @@ def get_logs(
     limit: int = 50,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    """Retrieve execution logs with optional status filtering."""
     with _lock:
         conn = _get_connection()
         try:
@@ -194,7 +169,6 @@ def get_logs(
 
 
 def get_stats() -> dict[str, Any]:
-    """Calculate aggregate telemetry metrics and failure stats."""
     with _lock:
         conn = _get_connection()
         try:
@@ -275,7 +249,6 @@ def get_stats() -> dict[str, Any]:
 
 
 def clear_logs() -> bool:
-    """Clear all records from the telemetry log store."""
     with _lock:
         conn = _get_connection()
         try:
@@ -290,7 +263,6 @@ def clear_logs() -> bool:
 
 
 def export_logs_csv() -> str:
-    """Export all telemetry logs as a CSV formatted string."""
     with _lock:
         conn = _get_connection()
         try:

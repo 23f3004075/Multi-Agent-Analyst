@@ -1,15 +1,3 @@
-"""
-Tests for the AST Allowlist Validator.
-
-Covers:
-    - Valid SQL queries pass validation
-    - All mutation operations are blocked (DROP, DELETE, UPDATE, INSERT, ALTER)
-    - DuckDB filesystem functions blocked (read_csv, read_parquet, glob, etc.)
-    - Multi-statement injection blocked
-    - LIMIT injection works correctly
-    - Edge cases (empty, comments, unicode, deeply nested)
-"""
-
 from __future__ import annotations
 
 import pytest
@@ -21,8 +9,6 @@ from src.guardrails.sql_ast_checker import (
 )
 
 class TestValidQueries:
-    """Ensure legitimate analytical queries pass validation."""
-
     def test_simple_select(self) -> None:
         result = validate_sql("SELECT * FROM orders LIMIT 10")
         assert "orders" in result
@@ -155,8 +141,6 @@ class TestValidQueries:
         assert "UPPER" in result
 
 class TestBlockedMutations:
-    """Ensure all write operations are blocked."""
-
     def test_drop_table(self) -> None:
         with pytest.raises(ASTValidationError, match="non_select_root|unsafe_node"):
             validate_sql("DROP TABLE orders")
@@ -194,8 +178,6 @@ class TestBlockedMutations:
             validate_sql("CREATE MACRO evil(x) AS x + 1")
 
 class TestBlockedFilesystem:
-    """Ensure DuckDB filesystem functions are blocked."""
-
     def test_read_csv(self) -> None:
         with pytest.raises(ASTValidationError, match="blocked_function|unsafe_node"):
             validate_sql("SELECT * FROM read_csv('/etc/passwd')")
@@ -221,8 +203,6 @@ class TestBlockedFilesystem:
             validate_sql("SELECT * FROM read_blob('/etc/hosts')")
 
 class TestMultiStatement:
-    """Ensure multi-statement injection is blocked."""
-
     def test_select_then_drop(self) -> None:
         with pytest.raises(ASTValidationError, match="multi_statement"):
             validate_sql("SELECT 1; DROP TABLE orders;")
@@ -236,8 +216,6 @@ class TestMultiStatement:
             validate_sql("SELECT/**/1;/**/DROP/**/TABLE/**/x")
 
 class TestBlockedSystemCommands:
-    """Ensure DuckDB system/config commands are blocked."""
-
     def test_attach(self) -> None:
         with pytest.raises(ASTValidationError):
             validate_sql("ATTACH ':memory:' AS pwn")
@@ -267,8 +245,6 @@ class TestBlockedSystemCommands:
             validate_sql("SET enable_external_access = true")
 
 class TestLimitInjection:
-    """Ensure LIMIT is properly injected when missing."""
-
     def test_limit_injected_when_missing(self) -> None:
         result = validate_sql("SELECT * FROM orders", max_rows=100)
         assert "LIMIT" in result
@@ -286,8 +262,6 @@ class TestLimitInjection:
         assert "5001" in result
 
 class TestEdgeCases:
-    """Edge cases and boundary conditions."""
-
     def test_empty_query(self) -> None:
         with pytest.raises(ASTValidationError, match="empty"):
             validate_sql("")
@@ -297,19 +271,15 @@ class TestEdgeCases:
             validate_sql("   \n\t  ")
 
     def test_trailing_semicolon_ok(self) -> None:
-        """A trailing semicolon on a single statement should be fine."""
         result = validate_sql("SELECT * FROM orders LIMIT 10;")
         assert "orders" in result
 
     def test_deeply_nested_subquery(self) -> None:
-        """Deeply nested queries should still work (within limits)."""
         sql = "SELECT * FROM (SELECT * FROM (SELECT * FROM orders LIMIT 5) t1) t2"
         result = validate_sql(sql)
         assert "orders" in result
 
 class TestBatchValidation:
-    """Test batch validation for red-team reporting."""
-
     def test_mixed_batch(self) -> None:
         queries = [
             "SELECT * FROM orders LIMIT 10",  # Valid

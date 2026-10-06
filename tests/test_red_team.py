@@ -1,17 +1,3 @@
-"""
-Red-Team Security Test Suite.
-
-Loads all payloads from red_team_payloads.json and verifies that
-EVERY SINGLE ONE is rejected by the AST allowlist validator.
-
-This is a regression suite — it must pass 50/50 (0 bypasses)
-before any deployment. The test is parameterized so each payload
-runs as a separate test case with clear pass/fail reporting.
-
-Run with: make red-team
-     or:  pytest tests/test_red_team.py -v --tb=long
-"""
-
 from __future__ import annotations
 
 import json
@@ -24,7 +10,6 @@ from src.guardrails.sql_ast_checker import ASTValidationError, validate_sql
 PAYLOADS_PATH = Path(__file__).resolve().parent.parent / "src" / "security" / "red_team_payloads.json"
 
 def load_payloads() -> list[dict]:
-    """Load red-team payloads from JSON."""
     with open(PAYLOADS_PATH) as f:
         return json.load(f)
 
@@ -33,12 +18,6 @@ PAYLOAD_IDS = [f"{p['id']}_{p['category']}" for p in PAYLOADS]
 
 @pytest.mark.parametrize("payload", PAYLOADS, ids=PAYLOAD_IDS)
 def test_red_team_payload_blocked(payload: dict) -> None:
-    """
-    Each red-team payload must be rejected by the AST validator.
-
-    If ANY payload passes validation, the security model has a bypass
-    and this test MUST fail loudly.
-    """
     sql = payload["payload"]
     payload_id = payload["id"]
     category = payload["category"]
@@ -67,7 +46,6 @@ def test_red_team_payload_blocked(payload: dict) -> None:
         pass
 
 def test_red_team_summary() -> None:
-    """Verify that ALL payloads are blocked (0 bypasses)."""
     bypasses = []
 
     for payload in PAYLOADS:
@@ -98,7 +76,6 @@ def test_red_team_summary() -> None:
     print(f"\n✅ Red-team security: 0 of {len(PAYLOADS)} payloads bypassed (100% block rate)")
 
 def test_red_team_coverage() -> None:
-    """Ensure we have comprehensive coverage across attack categories."""
     categories = {p["category"] for p in PAYLOADS}
 
     required_categories = {

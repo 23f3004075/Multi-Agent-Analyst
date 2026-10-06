@@ -1,9 +1,3 @@
-"""
-AST Validator Node — Allowlist-based SQL validation.
-
-Validates generated SQL against the AST allowlist before execution.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -16,11 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 def ast_validator_node(state: AgentState) -> dict[str, Any]:
-    """
-    Validate generated SQL against the AST allowlist.
-
-    Produces: ast_valid, ast_error, generated_sql (cleaned version)
-    """
     sql = state.get("generated_sql")
 
     if not sql:

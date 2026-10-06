@@ -1,27 +1,3 @@
-"""
-Semantic Layer — Business Term to SQL Expression Mapping.
-
-Maps business terminology ("revenue", "active customer", "average order
-value") to canonical SQL expressions. This is the #1 defense against
-"correct SQL that returns wrong results" — the hardest bug class in
-NL-to-SQL systems.
-
-Without this, the LLM will guess what "revenue" means each time,
-potentially using different definitions across queries.
-
-Architecture:
-    - Hardcoded Olist glossary (MVP)
-    - Designed for extension: load from YAML/JSON config file
-    - Injected into SQL generation prompts alongside DDL
-
-Usage:
-    from src.schema.semantic_layer import SemanticLayer
-
-    layer = SemanticLayer()
-    context = layer.get_metric_context("What is our total revenue?")
-    # Returns relevant metric definitions for the prompt
-"""
-
 from __future__ import annotations
 
 import logging
@@ -32,8 +8,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class MetricDefinition:
-    """A business metric mapped to its SQL expression."""
-
     name: str
     display_name: str
     sql_expression: str
@@ -164,18 +138,11 @@ OLIST_METRICS: list[MetricDefinition] = [
 
 
 class SemanticLayer:
-    """
-    Business glossary that maps terms to SQL definitions.
-
-    Injected into LLM prompts to ensure consistent metric computation.
-    """
-
     def __init__(self, metrics: list[MetricDefinition] | None = None) -> None:
         self._metrics = metrics or OLIST_METRICS
         self._alias_index = self._build_alias_index()
 
     def _build_alias_index(self) -> dict[str, MetricDefinition]:
-        """Build a lookup index from all aliases and names."""
         index: dict[str, MetricDefinition] = {}
         for metric in self._metrics:
             index[metric.name.lower()] = metric
@@ -185,12 +152,6 @@ class SemanticLayer:
         return index
 
     def find_relevant_metrics(self, query: str) -> list[MetricDefinition]:
-        """
-        Find metrics mentioned or implied by the query.
-
-        Uses simple keyword matching. For production, could be enhanced
-        with embedding similarity over metric descriptions.
-        """
         query_lower = query.lower()
         found: list[MetricDefinition] = []
         seen_names: set[str] = set()
@@ -203,12 +164,6 @@ class SemanticLayer:
         return found
 
     def get_metric_context(self, query: str) -> str:
-        """
-        Generate prompt context with relevant metric definitions.
-
-        This is injected into the SQL generation prompt so the LLM
-        uses the canonical definitions instead of guessing.
-        """
         metrics = self.find_relevant_metrics(query)
 
         if not metrics:
@@ -227,7 +182,6 @@ class SemanticLayer:
         return "\n".join(lines)
 
     def get_full_glossary(self) -> str:
-        """Return the complete metric glossary for prompt context."""
         lines = [
             "## Business Metric Glossary (Olist E-Commerce)",
             "Always use these definitions for business terms:",
@@ -245,12 +199,6 @@ class SemanticLayer:
         return "\n".join(lines)
 
     def get_tables_for_metrics(self, query: str) -> list[str]:
-        """
-        Return table names needed for metrics mentioned in the query.
-
-        Useful for augmenting schema linker results — ensures that
-        tables needed for metric computation are always included.
-        """
         metrics = self.find_relevant_metrics(query)
         tables: set[str] = set()
         for m in metrics:

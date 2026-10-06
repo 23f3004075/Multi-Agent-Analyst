@@ -1,14 +1,3 @@
-"""
-SQL Generation Prompt Templates.
-
-Structured prompts for Tier 1 (SLM) and Tier 2 (Frontier) SQL generation.
-Designed to maximize SQL accuracy by including:
-    - Schema DDL for linked tables only (not all tables)
-    - Semantic layer metric definitions
-    - Few-shot examples for DuckDB dialect
-    - Error context for self-healing retries
-"""
-
 from __future__ import annotations
 
 
@@ -138,12 +127,6 @@ def build_sql_generation_prompt(
     metric_context: str = "",
     tier: str = "tier1",
 ) -> tuple[str, str]:
-    """
-    Build the system and user prompts for SQL generation.
-
-    Returns:
-        (system_prompt, user_prompt) tuple.
-    """
     system = SQL_SYSTEM_PROMPT if tier == "tier1" else SQL_SYSTEM_PROMPT_TIER2
 
     user = SQL_USER_PROMPT_TEMPLATE.format(
@@ -163,12 +146,6 @@ def build_self_heal_prompt(
     error_history: list[str],
     metric_context: str = "",
 ) -> tuple[str, str]:
-    """
-    Build the prompt for self-healing SQL correction.
-
-    Returns:
-        (system_prompt, user_prompt) tuple.
-    """
     history_text = "\n".join(
         f"  Attempt {i + 1}: {err}" for i, err in enumerate(error_history)
     ) if error_history else "  No previous errors."
@@ -189,12 +166,6 @@ def build_analysis_prompt(
     sql_query: str,
     result_context: str,
 ) -> tuple[str, str]:
-    """
-    Build the prompt for data analysis and insight generation.
-
-    Returns:
-        (system_prompt, user_prompt) tuple.
-    """
     user = ANALYSIS_USER_PROMPT_TEMPLATE.format(
         user_query=user_query,
         sql_query=sql_query,

@@ -1,26 +1,3 @@
-"""
-LangGraph State Machine — Full Agent Graph Assembly.
-
-Wires together all nodes with conditional edges implementing:
-    - Guardrail rejection → terminal exit
-    - Tier 1 / Tier 2 routing
-    - AST validation → heal loop or execute
-    - Execution error → heal loop (with retry cap)
-    - Sanity check failure → heal loop (with retry cap)
-    - Visualization error → graceful degradation
-    - Report generation
-    - Final response formatting
-
-Every node has an error exit. No silent failures.
-
-Usage:
-    from src.agents.graph import build_graph, run_query
-
-    graph = build_graph()
-    result = run_query(graph, "What is total revenue by category?")
-    print(result["final_response"])
-"""
-
 from __future__ import annotations
 
 import logging
@@ -45,14 +22,12 @@ logger = logging.getLogger(__name__)
 
 
 def _after_guardrail(state: AgentState) -> str:
-    """Route after guardrail: pass → router, reject → terminal."""
     if state.get("guardrail_passed", False):
         return "route_query"
     return "terminal_reject"
 
 
 def _after_ast(state: AgentState) -> str:
-    """Route after AST validation: valid → execute, invalid → heal or fail."""
     if state.get("ast_valid", False):
         return "execute_sql"
 
@@ -65,7 +40,6 @@ def _after_ast(state: AgentState) -> str:
 
 
 def _after_execution(state: AgentState) -> str:
-    """Route after execution: success → visualize immediately, error → heal or fail."""
     if state.get("execution_error") is None and state.get("query_result") is not None:
         return "generate_visuals"
 
@@ -78,7 +52,6 @@ def _after_execution(state: AgentState) -> str:
 
 
 def _after_analysis(state: AgentState) -> str:
-    """Route after analysis: sanity OK → compile reports, fail → heal or compile."""
     if not state.get("sanity_check_passed", True):
         retry_count = state.get("retry_count", 0)
         max_retries = state.get("max_retries", 2)
@@ -90,11 +63,6 @@ def _after_analysis(state: AgentState) -> str:
 
 
 def _format_final_response(state: AgentState) -> dict[str, Any]:
-    """
-    Format the final response combining all outputs.
-
-    This is the terminal node that assembles the user-facing response.
-    """
     parts: list[str] = []
 
     analysis = state.get("analysis")
@@ -139,7 +107,6 @@ def _format_final_response(state: AgentState) -> dict[str, Any]:
 
 
 def _terminal_reject(state: AgentState) -> dict[str, Any]:
-    """Format rejection message for blocked inputs."""
     reason = state.get("guardrail_rejection_reason", "Input blocked by security filters.")
     return {
         "final_response": (
@@ -151,21 +118,6 @@ def _terminal_reject(state: AgentState) -> dict[str, Any]:
 
 
 def build_graph() -> StateGraph:
-    """
-    Build the complete LangGraph state machine.
-
-    Graph topology:
-        START → guardrail → [pass] → router → sql_gen → ast_validate
-            → [valid] → execute → [ok] → analyze → [ok] → visualize
-            → report → format_response → END
-
-        Error paths:
-            guardrail [reject] → terminal_reject → END
-            ast_validate [invalid] → heal → sql_gen (loop)
-            execute [error] → heal → sql_gen (loop)
-            analyze [sanity fail] → heal → sql_gen (loop)
-            heal [max retries] → terminal_error → END
-    """
     graph = StateGraph(AgentState)
 
     graph.add_node("guardrail", guardrail_node)
@@ -220,7 +172,6 @@ def build_graph() -> StateGraph:
 
 
 def compile_graph():
-    """Build and compile the graph for execution."""
     graph = build_graph()
     return graph.compile()
 
@@ -230,17 +181,6 @@ def run_query(
     compiled_graph=None,
     max_retries: int = 2,
 ) -> dict[str, Any]:
-    """
-    Run a natural-language query through the full agent pipeline.
-
-    Args:
-        user_query: Natural-language question.
-        compiled_graph: Pre-compiled graph (optional, compiled if None).
-        max_retries: Maximum self-healing retries.
-
-    Returns:
-        Final AgentState dict with all results.
-    """
     if compiled_graph is None:
         compiled_graph = compile_graph()
 

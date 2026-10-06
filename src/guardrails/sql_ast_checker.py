@@ -1,23 +1,3 @@
-"""
-SQL AST Checker — Allowlist-Based AST Validation.
-
-Uses sqlglot to parse SQL into an Abstract Syntax Tree and validates
-every node against a strict allowlist. Rejects anything not explicitly
-permitted.
-
-Guarantees:
-    - ONLY read operations (SELECT, CTEs, Unions) are permitted
-    - NO mutations (DROP, DELETE, INSERT, UPDATE, ALTER, TRUNCATE, etc.)
-    - NO filesystem access (read_csv, read_parquet, glob, etc.)
-    - NO network access (httpfs, s3, etc.)
-    - NO system commands (INSTALL, LOAD, ATTACH, PRAGMA, SET, etc.)
-    - NO multiple statements (semicolon-chaining injection)
-    - Enforces row-limit injection if no LIMIT clause is present
-
-Design Principle: ALLOWLIST, NOT BLOCKLIST.
-If a node type is not in SAFE_NODE_TYPES, the query is REJECTED.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class ASTValidationError(Exception):
-    """Raised when SQL fails the AST allowlist validation."""
-
     def __init__(self, message: str, violation_type: str = "unknown") -> None:
         self.message = message
         self.violation_type = violation_type
@@ -141,8 +119,6 @@ MAX_AST_DEPTH = 50
 
 @dataclass
 class ValidationResult:
-    """Result of an AST validation check."""
-
     is_valid: bool
     cleaned_sql: str = ""
     error: Optional[str] = None
@@ -151,7 +127,6 @@ class ValidationResult:
 
 
 def _check_recursive_cte(tree: exp.Expression) -> None:
-    """Block recursive CTEs (prevents recursion DoS attacks)."""
     for with_expr in tree.find_all(exp.With):
         if with_expr.args.get("recursive"):
             raise ASTValidationError(
@@ -161,7 +136,6 @@ def _check_recursive_cte(tree: exp.Expression) -> None:
 
 
 def _check_excessive_cross_joins(tree: exp.Expression) -> None:
-    """Block queries with multiple cross joins (prevents Cartesian explosion)."""
     cross_join_count = 0
     for join in tree.find_all(exp.Join):
         kind = (join.args.get("kind") or "").upper()
@@ -177,7 +151,6 @@ def _check_excessive_cross_joins(tree: exp.Expression) -> None:
 
 
 def _check_network_urls(tree: exp.Expression) -> None:
-    """Block URLs/remote paths in table references and string literals."""
     for table in tree.find_all(exp.Table):
         name = table.name.lower()
         if any(name.startswith(p) for p in ("http://", "https://", "s3://", "gcs://", "ftp://")):
@@ -201,7 +174,6 @@ def _check_network_urls(tree: exp.Expression) -> None:
 
 
 def _check_tautologies(tree: exp.Expression) -> None:
-    """Block SQL injection tautologies like 1=1 or 'a'='a' in WHERE clauses."""
     for where in tree.find_all(exp.Where):
         for eq in where.find_all(exp.EQ):
             if isinstance(eq.left, exp.Literal) and isinstance(eq.right, exp.Literal):
@@ -219,7 +191,6 @@ def _check_tautologies(tree: exp.Expression) -> None:
 
 
 def _check_string_escapes(tree: exp.Expression) -> None:
-    """Detect parser-differential string escape injections (e.g. embedded DDL / comments)."""
     for lit in tree.find_all(exp.Literal):
         if lit.is_string:
             val = str(lit.this)
@@ -241,30 +212,6 @@ def validate_sql(
     max_rows: int = 5001,
     inject_limit: bool = True,
 ) -> str:
-    """
-    Validate SQL against the AST allowlist.
-
-    Steps:
-        1. Parse SQL into AST (reject on parse error)
-        2. Enforce single-statement (reject multi-statement injection)
-        3. Enforce SELECT root (reject non-query statements)
-        4. Walk every AST node against the allowlist
-        5. Check function names against block/allow lists
-        6. Inject LIMIT if not present (prevent memory exhaustion)
-        7. Return the cleaned, validated SQL string
-
-    Args:
-        sql: Raw SQL string to validate.
-        dialect: SQL dialect for parsing (default: duckdb).
-        max_rows: Maximum rows to allow (injected as LIMIT if missing).
-        inject_limit: Whether to inject LIMIT clause if missing.
-
-    Returns:
-        Validated, cleaned SQL string safe for execution.
-
-    Raises:
-        ASTValidationError: If any validation check fails.
-    """
     sql = sql.strip()
 
     if not sql:
@@ -323,7 +270,6 @@ def validate_sql(
 
 
 def _validate_root_type(tree: exp.Expression) -> None:
-    """Ensure the root node is a SELECT, UNION, or CTE wrapping a SELECT."""
     root_type = type(tree)
 
     if root_type in {exp.Select, exp.Union, exp.Intersect, exp.Except}:
@@ -340,7 +286,6 @@ def _validate_root_type(tree: exp.Expression) -> None:
 
 
 def _validate_node(node: exp.Expression) -> None:
-    """Validate a single AST node against the allowlist."""
     node_type = type(node)
 
     if node_type not in SAFE_NODE_TYPES:
@@ -359,7 +304,6 @@ def _validate_node(node: exp.Expression) -> None:
 
 
 def _get_function_name(node: exp.Expression) -> str:
-    """Extract the function name from a function node."""
     if isinstance(node, exp.Anonymous):
         return node.name.lower() if hasattr(node, "name") else ""
 
@@ -372,7 +316,6 @@ def _get_function_name(node: exp.Expression) -> str:
 
 
 def _validate_function_name(func_name: str) -> None:
-    """Check function name against blocked list."""
     func_name_clean = func_name.strip().lower()
 
     if func_name_clean in BLOCKED_FUNCTIONS:
@@ -384,12 +327,6 @@ def _validate_function_name(func_name: str) -> None:
 
 
 def _ensure_limit(tree: exp.Expression, max_rows: int) -> exp.Expression:
-    """
-    Inject LIMIT clause if the root SELECT doesn't have one.
-
-    We inject max_rows + 1 so the executor can detect truncation
-    (if exactly max_rows+1 are returned, results were truncated).
-    """
     root_select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
     if root_select is None:
         return tree
@@ -420,12 +357,6 @@ def validate_batch(
     queries: list[str],
     dialect: str = "duckdb",
 ) -> list[ValidationResult]:
-    """
-    Validate a batch of SQL queries. Returns results (not exceptions).
-
-    Useful for red-team testing — validates all payloads and reports
-    which ones passed/failed.
-    """
     results = []
     for sql in queries:
         try:

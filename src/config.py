@@ -1,16 +1,3 @@
-"""
-Enterprise SQL Agent — Centralized Configuration.
-
-All environment variables, model IDs, resource limits, and feature flags
-are defined here as typed, validated Pydantic Settings. Values are loaded
-from .env files with sensible defaults for local development.
-
-Usage:
-    from src.config import get_settings
-    settings = get_settings()
-    print(settings.tier1_model)
-"""
-
 from __future__ import annotations
 
 import os
@@ -26,22 +13,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Environment(str, Enum):
-    """Deployment environment."""
-
     DEVELOPMENT = "development"
     STAGING = "staging"
     PRODUCTION = "production"
 
 
 class Settings(BaseSettings):
-    """
-    Centralized, typed configuration for the entire agent system.
-
-    Every subsystem reads from this single source of truth.
-    Secrets (API keys) are loaded from environment / .env file and
-    never logged or serialized.
-    """
-
     model_config = SettingsConfigDict(
         env_file=str(PROJECT_ROOT / ".env"),
         env_file_encoding="utf-8",
@@ -74,7 +51,6 @@ class Settings(BaseSettings):
 
     @property
     def effective_openrouter_key(self) -> Optional[str]:
-        """Return OpenRouter API key from openrouter_api_key, api_key, or env."""
         return (
             self.openrouter_api_key
             or self.api_key
@@ -137,7 +113,6 @@ class Settings(BaseSettings):
         return v
 
     def ensure_output_dirs(self) -> None:
-        """Create output directories if they don't exist."""
         self.report_output_dir.mkdir(parents=True, exist_ok=True)
         self.chart_output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -150,7 +125,6 @@ class Settings(BaseSettings):
         return self.environment == Environment.PRODUCTION
 
     def get_litellm_env(self) -> dict[str, str]:
-        """Return environment variables needed by LiteLLM."""
         env: dict[str, str] = {}
         if self.openai_api_key:
             env["OPENAI_API_KEY"] = self.openai_api_key
@@ -162,12 +136,6 @@ class Settings(BaseSettings):
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """
-    Singleton settings accessor.
-
-    Cached so that repeated calls don't re-parse the .env file.
-    Use dependency injection in FastAPI; direct import elsewhere.
-    """
     settings = Settings()
 
     for key, value in settings.get_litellm_env().items():

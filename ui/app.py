@@ -1,17 +1,3 @@
-"""
-Enterprise SQL Agent — Streamlit UI.
-
-Multi-tab dashboard with:
-    - Query input with routing badge
-    - Interactive Plotly chart renderer
-    - Data table view
-    - PDF/Excel download panel
-    - Ambiguity warnings
-
-Usage:
-    streamlit run ui/app.py --server.port 8501
-"""
-
 from __future__ import annotations
 
 import json

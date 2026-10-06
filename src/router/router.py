@@ -1,25 +1,3 @@
-"""
-Query Complexity Router.
-
-Determines whether a query should be routed to Tier 1 (SLM) or
-Tier 2 (Frontier) based on heuristic features extractable from the
-natural-language query and schema-linking results.
-
-Architecture:
-    1. Heuristic classifier (fast, rule-based)
-    2. Confidence scoring
-    3. Schema-aware complexity estimation
-
-Does NOT use RouteLLM (wrong training domain) or SQL-level features
-(circular dependency — SQL doesn't exist yet at routing time).
-
-Usage:
-    from src.router.router import QueryRouter, RoutingDecision
-
-    router = QueryRouter(settings)
-    decision = router.route("What is total revenue by category?", linked_tables=["order_items", "products"])
-"""
-
 from __future__ import annotations
 
 import logging
@@ -39,8 +17,6 @@ class Tier(str, Enum):
 
 @dataclass
 class RoutingDecision:
-    """Result of the routing decision."""
-
     tier: Tier
     confidence: float
     reason: str
@@ -96,13 +72,6 @@ AMBIGUITY_PATTERNS: list[str] = [
 
 
 class QueryRouter:
-    """
-    Routes queries to the appropriate model tier.
-
-    Uses heuristic feature extraction from the NL query and
-    schema-linking metadata (number of linked tables).
-    """
-
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
@@ -111,16 +80,6 @@ class QueryRouter:
         query: str,
         linked_tables: list[str] | None = None,
     ) -> RoutingDecision:
-        """
-        Evaluate query complexity and determine model tier.
-
-        Args:
-            query: Natural-language query string.
-            linked_tables: Tables identified by the schema linker.
-
-        Returns:
-            RoutingDecision with tier, confidence, and explanation.
-        """
         features = self._extract_features(query, linked_tables or [])
         complexity = self._compute_complexity(features)
 
@@ -158,7 +117,6 @@ class QueryRouter:
     def _extract_features(
         self, query: str, linked_tables: list[str]
     ) -> dict:
-        """Extract routing features from the NL query."""
         query_lower = query.lower()
 
         simple_score = 0.0
@@ -208,12 +166,6 @@ class QueryRouter:
 
     @staticmethod
     def _compute_complexity(features: dict) -> float:
-        """
-        Compute a single complexity score from extracted features.
-
-        0.0 = definitely simple (Tier 1)
-        1.0 = definitely complex (Tier 2)
-        """
         simple = features["simple_score"]
         complex_ = features["complex_score"]
 

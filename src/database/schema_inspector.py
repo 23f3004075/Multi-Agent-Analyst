@@ -1,24 +1,3 @@
-"""
-Database Schema Inspector.
-
-Extracts DDL definitions, column metadata, sample values, and table
-statistics from a DuckDB database. This metadata is used by:
-    - Schema linker (embedding-based table retrieval)
-    - SQL generation prompts (DDL context for the LLM)
-    - Semantic layer (column descriptions for metric mapping)
-
-The inspector reads schema once and caches it. It does NOT require
-a security-hardened connection since it only reads metadata.
-
-Usage:
-    from src.database.schema_inspector import SchemaInspector
-
-    inspector = SchemaInspector(conn)
-    tables = inspector.get_all_tables()
-    ddl = inspector.get_ddl("orders")
-    metadata = inspector.get_table_metadata("orders")
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,8 +12,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ColumnInfo:
-    """Metadata for a single database column."""
-
     name: str
     data_type: str
     is_nullable: bool
@@ -45,7 +22,6 @@ class ColumnInfo:
     description: str = ""
 
     def to_ddl_fragment(self) -> str:
-        """Format as a DDL column definition."""
         parts = [f"    {self.name} {self.data_type}"]
         if self.is_primary_key:
             parts.append("PRIMARY KEY")
@@ -54,7 +30,6 @@ class ColumnInfo:
         return " ".join(parts)
 
     def to_embedding_text(self) -> str:
-        """Format for embedding — includes samples for semantic matching."""
         text = f"{self.name} ({self.data_type})"
         if self.description:
             text += f" — {self.description}"
@@ -66,8 +41,6 @@ class ColumnInfo:
 
 @dataclass(frozen=True)
 class TableInfo:
-    """Complete metadata for a database table."""
-
     name: str
     columns: list[ColumnInfo]
     row_count: int
@@ -82,18 +55,10 @@ class TableInfo:
         return [c.name for c in self.columns if c.is_primary_key]
 
     def to_ddl(self) -> str:
-        """Generate CREATE TABLE DDL string."""
         col_defs = ",\n".join(c.to_ddl_fragment() for c in self.columns)
         return f"CREATE TABLE {self.name} (\n{col_defs}\n);"
 
     def to_embedding_text(self) -> str:
-        """
-        Format for embedding-based retrieval.
-
-        Includes table name, description, column names with types and
-        sample values. This gives the embedding model rich semantic
-        signal for matching user queries to relevant tables.
-        """
         lines = [f"Table: {self.name}"]
         if self.description:
             lines.append(f"Description: {self.description}")
@@ -104,29 +69,16 @@ class TableInfo:
         return "\n".join(lines)
 
     def to_prompt_context(self) -> str:
-        """
-        Format for LLM prompt injection.
-
-        Concise DDL + row count. Used in SQL generation prompts.
-        """
         ddl = self.to_ddl()
         return f"-- {self.name} ({self.row_count:,} rows)\n{ddl}"
 
 
 class SchemaInspector:
-    """
-    Inspects and caches DuckDB schema metadata.
-
-    Reads table structures, column types, sample values, and statistics.
-    All reads are performed once and cached for the session lifetime.
-    """
-
     def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
         self._conn = conn
         self._cache: dict[str, TableInfo] = {}
 
     def get_all_table_names(self) -> list[str]:
-        """Return sorted list of all user table names."""
         result = self._conn.execute("""
             SELECT table_name
             FROM information_schema.tables
@@ -137,11 +89,6 @@ class SchemaInspector:
         return [row[0] for row in result]
 
     def get_table_metadata(self, table_name: str) -> TableInfo:
-        """
-        Get full metadata for a table, including column info and samples.
-
-        Results are cached — safe to call repeatedly.
-        """
         if table_name in self._cache:
             return self._cache[table_name]
 
@@ -196,19 +143,12 @@ class SchemaInspector:
         return table_info
 
     def get_all_tables(self) -> list[TableInfo]:
-        """Get metadata for all tables in the database."""
         return [
             self.get_table_metadata(name)
             for name in self.get_all_table_names()
         ]
 
     def get_full_ddl(self, table_names: list[str] | None = None) -> str:
-        """
-        Get combined DDL for specified tables (or all tables).
-
-        Used by SQL generation prompts when schema linking retrieves
-        a subset of relevant tables.
-        """
         if table_names is None:
             table_names = self.get_all_table_names()
 
@@ -220,20 +160,12 @@ class SchemaInspector:
         return "\n\n".join(ddl_parts)
 
     def get_embedding_texts(self) -> dict[str, str]:
-        """
-        Get embedding-ready text representations for all tables.
-
-        Returns:
-            Dict mapping table_name → rich text description including
-            columns, types, sample values, and row counts.
-        """
         return {
             table.name: table.to_embedding_text()
             for table in self.get_all_tables()
         }
 
     def _get_primary_keys(self, table_name: str) -> set[str]:
-        """Extract primary key column names for a table."""
         try:
             result = self._conn.execute(f"""
                 SELECT column_name
@@ -248,7 +180,6 @@ class SchemaInspector:
     def _get_sample_values(
         self, table_name: str, column_name: str, n: int = 5
     ) -> list[Any]:
-        """Get N distinct non-null sample values from a column."""
         try:
             result = self._conn.execute(f"""
                 SELECT DISTINCT "{column_name}"
@@ -261,7 +192,6 @@ class SchemaInspector:
             return []
 
     def _get_distinct_count(self, table_name: str, column_name: str) -> int:
-        """Get approximate distinct value count for a column."""
         try:
             result = self._conn.execute(f"""
                 SELECT approx_count_distinct("{column_name}")
@@ -274,7 +204,6 @@ class SchemaInspector:
     def _get_null_percentage(
         self, table_name: str, column_name: str, total_rows: int
     ) -> float:
-        """Get percentage of null values in a column."""
         if total_rows == 0:
             return 0.0
         try:

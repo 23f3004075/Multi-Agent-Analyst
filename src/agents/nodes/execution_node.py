@@ -1,10 +1,3 @@
-"""
-Execution Node — Sandboxed SQL Query Execution.
-
-Runs validated SQL against the hardened DuckDB sandbox.
-Returns a QueryResult reference (not raw data).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -29,11 +22,6 @@ def _get_executor() -> SandboxedExecutor:
 
 
 def execution_node(state: AgentState) -> dict[str, Any]:
-    """
-    Execute validated SQL in the sandboxed DuckDB environment.
-
-    Produces: query_result (as dict), execution_error
-    """
     sql = state.get("generated_sql")
 
     if not sql:

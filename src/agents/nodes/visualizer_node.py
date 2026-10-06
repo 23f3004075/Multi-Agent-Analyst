@@ -1,11 +1,3 @@
-"""
-Visualizer Node — Chart Generation from Query Results.
-
-Takes analysis output (with suggested chart spec) and builds
-Plotly figures deterministically from minimal specifications.
-Falls back to rule-based chart type selection if LLM suggestion fails.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -32,7 +24,6 @@ COLOR_PALETTE = [
 
 
 def _detect_prompt_preference(query: str) -> str | None:
-    """Detect if the user explicitly asked for a specific chart type in their query."""
     q = query.lower()
     if re.search(r"\b(horizontal|hbar|barh)\b", q):
         return "horizontal_bar"
@@ -59,7 +50,6 @@ def _build_single_figure(
     group: str | None = None,
     title: str = "Chart",
 ) -> dict | None:
-    """Build an individual styled Plotly figure."""
     import plotly.express as px
 
     try:
@@ -170,7 +160,6 @@ def _generate_all_chart_options(
     user_query: str = "",
     suggested_spec: dict | None = None,
 ) -> list[ChartSpec]:
-    """Generate multiple viable chart options tailored to the data and user prompt."""
     if df.empty or len(df.columns) == 0:
         return []
 
@@ -341,11 +330,6 @@ def _generate_all_chart_options(
 
 
 def visualizer_node(state: AgentState) -> dict[str, Any]:
-    """
-    Generate multiple chart specifications and Plotly figures based on data and prompt.
-
-    Produces: chart_specs, chart_render_error
-    """
     result = state.get("query_result")
     analysis = state.get("analysis")
     user_query = state.get("cleaned_query") or state.get("user_query") or ""

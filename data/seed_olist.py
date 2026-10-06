@@ -1,26 +1,3 @@
-"""
-Olist Brazilian E-Commerce Dataset → DuckDB Seeder.
-
-Downloads the Olist public dataset CSVs from the Kaggle-mirrored
-GitHub repository, loads them into a DuckDB database with proper
-typing, constraints, and indices optimized for analytical queries.
-
-Tables created (9 total):
-    - customers          (~99k rows)
-    - orders             (~100k rows)
-    - order_items        (~113k rows)
-    - order_payments     (~104k rows)
-    - order_reviews      (~100k rows)
-    - products           (~33k rows)
-    - sellers            (~3k rows)
-    - product_category   (~71 rows, name translations)
-    - geolocation        (~1M rows)
-
-Usage:
-    python data/seed_olist.py
-    # or: make seed
-"""
-
 from __future__ import annotations
 
 import io
@@ -193,10 +170,6 @@ INDICES_DDL: list[str] = [
 
 
 def download_dataset_zip(url: str, timeout: float = 120.0) -> dict[str, bytes]:
-    """
-    Download the Olist zip archive and return a mapping of
-    CSV filename → raw bytes.
-    """
     console.print(f"[bold blue]Downloading dataset from:[/] {url}")
 
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
@@ -218,7 +191,6 @@ def download_dataset_zip(url: str, timeout: float = 120.0) -> dict[str, bytes]:
 def download_individual_csvs(
     base_url: str, filenames: list[str], timeout: float = 60.0
 ) -> dict[str, bytes]:
-    """Fallback: download individual CSVs if zip archive is unavailable."""
     csv_files: dict[str, bytes] = {}
     with httpx.Client(timeout=timeout, follow_redirects=True) as client:
         for fname in filenames:
@@ -238,12 +210,6 @@ def load_csvs_into_duckdb(
     csv_data: dict[str, bytes],
     table_map: dict[str, str],
 ) -> None:
-    """
-    Create the DuckDB database, define schemas, and bulk-load CSVs.
-
-    Uses DuckDB's native CSV reader for maximum performance.
-    Database is opened in read-write mode for seeding only.
-    """
     # Remove existing database to ensure clean state
     if db_path.exists():
         console.print(f"[yellow]Removing existing database: {db_path}[/]")
@@ -338,7 +304,6 @@ def load_csvs_into_duckdb(
 
 
 def main() -> None:
-    """Download Olist dataset and seed DuckDB."""
     console.print(
         "\n[bold]=== Olist E-Commerce Dataset Seeder ===[/]\n"
     )

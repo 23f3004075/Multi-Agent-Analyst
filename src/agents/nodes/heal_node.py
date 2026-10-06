@@ -1,13 +1,3 @@
-"""
-Self-Healing Node — Error Recovery and Retry Logic.
-
-When SQL generation or execution fails, this node:
-1. Captures the error context
-2. Increments retry count
-3. Escalates to Tier 2 if currently on Tier 1
-4. Routes to terminal_error if max retries exceeded
-"""
-
 from __future__ import annotations
 
 import logging
@@ -19,11 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 def heal_node(state: AgentState) -> dict[str, Any]:
-    """
-    Handle SQL generation or execution errors with retry logic.
-
-    Produces: retry_count, error_history, route_decision (escalation)
-    """
     retry_count = state.get("retry_count", 0)
     max_retries = state.get("max_retries", 2)
     error_history = list(state.get("error_history", []))

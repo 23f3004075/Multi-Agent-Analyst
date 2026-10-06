@@ -1,7 +1,3 @@
-"""
-Terminal Error Node — Graceful failure after max retries.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -13,9 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 def terminal_error_node(state: AgentState) -> dict[str, Any]:
-    """
-    Format a user-friendly error message when all retries are exhausted.
-    """
     error_history = state.get("error_history", [])
     query = state.get("cleaned_query", "your question")
     retry_count = state.get("retry_count", 0)

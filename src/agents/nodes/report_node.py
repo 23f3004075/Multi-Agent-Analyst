@@ -1,15 +1,3 @@
-"""
-Report Node — PDF & Excel Report Generation.
-
-Compiles query results, analysis, and charts into downloadable
-executive reports. Handles both PDF (WeasyPrint) and Excel (XlsxWriter).
-
-Security:
-    - WeasyPrint: restrictive url_fetcher blocks file:// and http://
-    - XlsxWriter: strings_to_formulas=False blocks formula injection
-    - Jinja2: autoescape=True prevents XSS in templates
-"""
-
 from __future__ import annotations
 
 import logging
@@ -26,12 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 def _safe_url_fetcher(url: str, timeout: int = 10) -> dict:
-    """
-    Restrictive URL fetcher for WeasyPrint.
-
-    Only allows data: URIs (for embedded base64 images).
-    Blocks file://, http://, https://, and everything else.
-    """
     if url.startswith("data:"):
         from weasyprint import default_url_fetcher
         return default_url_fetcher(url, timeout)
@@ -50,7 +32,6 @@ def _generate_pdf_reportlab(
     sql: str,
     output_dir: Path,
 ) -> str | None:
-    """Generate a clean, professional PDF report using ReportLab."""
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import letter
@@ -256,7 +237,6 @@ def _generate_pdf(
     sql: str,
     output_dir: Path,
 ) -> str | None:
-    """Generate a PDF report using ReportLab (primary) with WeasyPrint fallback."""
     pdf_path = _generate_pdf_reportlab(
         result=result,
         analysis=analysis,
@@ -308,7 +288,6 @@ def _generate_excel(
     sql: str,
     output_dir: Path,
 ) -> str | None:
-    """Generate a styled multi-tab Excel workbook."""
     try:
         import xlsxwriter
 
@@ -412,11 +391,6 @@ def _generate_excel(
 
 
 def report_node(state: AgentState) -> dict[str, Any]:
-    """
-    Generate PDF and Excel reports from query results.
-
-    Produces: report_paths, report_error
-    """
     result = state.get("query_result")
     analysis = state.get("analysis")
     query = state.get("cleaned_query", "")

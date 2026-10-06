@@ -1,13 +1,3 @@
-"""
-FastAPI Server for Enterprise SQL Agent.
-
-Serves:
-    - POST /api/query: Executes natural-language queries through the LangGraph pipeline
-    - GET /api/health: Database connectivity & table inventory
-    - GET /api/download: Download generated PDF / Excel reports
-    - Static files: Serves the HTML + CSS + Vue.js / Bootstrap 5 UI
-"""
-
 from __future__ import annotations
 
 import json
@@ -58,7 +48,6 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_no_cache_headers(request, call_next):
-    """Enforce strict no-cache headers for HTML, JS, and CSS so normal Chrome tabs never serve stale assets."""
     response = await call_next(request)
     path = request.url.path.lower()
     if path == "/" or path.endswith((".html", ".js", ".css", ".json")):
@@ -80,7 +69,6 @@ def get_graph():
 
 @app.on_event("startup")
 def prewarm_models():
-    """Pre-warm LangGraph machine and embedding models to eliminate first-query latency."""
     import threading
     init_log_store()
 
@@ -103,7 +91,6 @@ class QueryRequest(BaseModel):
 
 
 def _strip_emojis(text: str) -> str:
-    """Remove emojis from strings for strict no-emoji UI requirements."""
     if not text:
         return ""
     emoji_pattern = re.compile(
@@ -116,7 +103,6 @@ def _strip_emojis(text: str) -> str:
 
 
 def _make_json_safe(data: Any) -> Any:
-    """Recursively convert NumPy types, Pandas objects, and unknown types to JSON primitives."""
     return json.loads(
         json.dumps(
             data,
@@ -131,7 +117,6 @@ def _make_json_safe(data: Any) -> Any:
 
 @app.get("/api/health")
 def health_check() -> dict[str, Any]:
-    """Check database status, table catalog, and active configuration."""
     settings = get_settings()
     db_path = Path(settings.database_path)
 
@@ -174,10 +159,6 @@ _tables_preview_cache: dict[str, Any] | None = None
 
 @app.get("/api/tables/preview")
 def get_tables_preview() -> dict[str, Any]:
-    """
-    Return catalog of all database tables with total row counts, column lists,
-    and a 5-row sample preview for interactive hover inspection.
-    """
     global _tables_preview_cache
     if _tables_preview_cache is not None:
         return _tables_preview_cache
@@ -222,7 +203,6 @@ def get_tables_preview() -> dict[str, Any]:
 
 @app.post("/api/query")
 def execute_query(req: QueryRequest) -> dict[str, Any]:
-    """Execute natural-language query through the full agent pipeline."""
     graph = get_graph()
 
     try:
@@ -358,17 +338,6 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
 
 @app.post("/api/query/stream")
 def execute_query_stream(req: QueryRequest):
-    """
-    Stream natural-language query execution progress and progressive results.
-
-    Emits SSE events as each component finishes:
-      - sql: Generated SQL statement and audit
-      - data: Data Preview (10 Rows)
-      - chart: Interactive Chart options & figures
-      - summary: Executive Summary & findings
-      - reports: PDF & Excel report downloads
-      - complete: Overall execution summary
-    """
     import queue
     import threading
     import time
@@ -637,7 +606,6 @@ def download_report(
     path: str = Query(..., description="Report file path on server"),
     inline: bool = Query(default=False, description="Display inline in browser for PDF preview"),
 ):
-    """Download or preview generated PDF / Excel report."""
     file_path = Path(path).resolve()
 
     if not file_path.exists() or not file_path.is_file():
@@ -670,7 +638,6 @@ def fetch_logs(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    """Retrieve execution logs and aggregate telemetry stats."""
     return _make_json_safe({
         "stats": get_stats(),
         "logs": get_logs(status=status, limit=limit, offset=offset),
@@ -679,14 +646,12 @@ def fetch_logs(
 
 @app.delete("/api/logs")
 def remove_logs() -> dict[str, Any]:
-    """Clear all execution logs."""
     cleared = clear_logs()
     return {"success": cleared, "message": "Telemetry logs cleared successfully."}
 
 
 @app.get("/api/logs/export")
 def export_logs() -> Response:
-    """Export all telemetry logs as a CSV file."""
     csv_data = export_logs_csv()
     return Response(
         content=csv_data,
@@ -704,7 +669,6 @@ if not WEB_DIR.exists():
 
 @app.get("/")
 async def serve_index():
-    """Explicit root route serving index.html with strict cache-busting headers."""
     return FileResponse(
         path=str(WEB_DIR / "index.html"),
         headers={

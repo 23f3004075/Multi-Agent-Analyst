@@ -1,28 +1,3 @@
-"""
-Hardened DuckDB Connection Factory.
-
-Implements a 4-layer security lockdown:
-    Layer 1: read_only=True      → storage engine prevents writes
-    Layer 2: enable_external_access=false → blocks read_csv, HTTP, extensions
-    Layer 3: lock_configuration=true      → prevents SET/PRAGMA overrides
-    Layer 4: memory_limit + threads       → resource exhaustion protection
-
-This factory produces connections that are safe to run untrusted SQL against.
-The primary security boundary is the DuckDB configuration, NOT the AST checker.
-The AST checker (sql_ast_checker.py) is defense-in-depth only.
-
-Usage:
-    from src.database.connection import create_secure_connection, ConnectionManager
-    from src.config import get_settings
-
-    # One-off connection
-    conn = create_secure_connection(get_settings())
-
-    # Managed context (preferred)
-    with ConnectionManager(get_settings()) as conn:
-        result = conn.execute("SELECT 1").fetchone()
-"""
-
 from __future__ import annotations
 
 import logging
@@ -37,26 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 class DatabaseConnectionError(Exception):
-    """Raised when the database connection cannot be established or secured."""
+    pass
 
 
 def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
-    """
-    Create a security-hardened DuckDB connection.
-
-    The configuration is applied in a specific order — lock_configuration
-    MUST be last because it prevents all subsequent SET commands (including
-    attempts by injected SQL to re-enable external access).
-
-    Args:
-        settings: Application settings containing database configuration.
-
-    Returns:
-        A locked-down DuckDB connection safe for untrusted query execution.
-
-    Raises:
-        DatabaseConnectionError: If the database cannot be opened or secured.
-    """
     db_path = str(settings.database_path)
 
     try:
@@ -101,12 +60,6 @@ def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
 
 
 def _verify_lockdown(conn: duckdb.DuckDBPyConnection) -> None:
-    """
-    Paranoia check: verify that the security configuration is actually active.
-
-    This catches edge cases where DuckDB silently ignores a SET command
-    (e.g., if the setting name changes in a new version).
-    """
     checks = {
         "enable_external_access": "false",
     }
@@ -132,16 +85,6 @@ def _verify_lockdown(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 class ConnectionManager:
-    """
-    Context manager for secure DuckDB connections.
-
-    Handles connection lifecycle and ensures cleanup on exit.
-
-    Usage:
-        with ConnectionManager(settings) as conn:
-            conn.execute("SELECT * FROM orders LIMIT 10")
-    """
-
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._conn: duckdb.DuckDBPyConnection | None = None
@@ -167,12 +110,5 @@ class ConnectionManager:
 
 @contextmanager
 def get_connection(settings: Settings) -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    """
-    Convenience context manager wrapping ConnectionManager.
-
-    Usage:
-        with get_connection(settings) as conn:
-            df = conn.execute("SELECT * FROM orders LIMIT 5").fetchdf()
-    """
     with ConnectionManager(settings) as conn:
         yield conn

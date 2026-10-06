@@ -1,14 +1,3 @@
-"""
-Tests for the DuckDB Connection Factory & Sandboxed Executor.
-
-Covers:
-    - Security lockdown verification (read-only, external access, config lock)
-    - Query timeout enforcement via conn.interrupt()
-    - Memory limit enforcement
-    - QueryResult reference type correctness
-    - Truncation detection
-"""
-
 from __future__ import annotations
 
 import time
@@ -22,7 +11,6 @@ from src.config import Settings
 
 @pytest.fixture
 def temp_db(tmp_path: Path) -> Path:
-    """Create a temporary DuckDB database with test data."""
     db_path = tmp_path / "test.duckdb"
 
     # Create and seed the database (read-write for setup only)
@@ -48,7 +36,6 @@ def temp_db(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def test_settings(temp_db: Path) -> Settings:
-    """Create Settings pointing to the temp database."""
     return Settings(
         database_path=temp_db,
         db_memory_limit="256MB",
@@ -58,10 +45,7 @@ def test_settings(temp_db: Path) -> Settings:
     )
 
 class TestConnectionSecurity:
-    """Verify the 4-layer security lockdown."""
-
     def test_read_only_blocks_write(self, test_settings: Settings) -> None:
-        """Layer 1: read_only=True prevents write operations at storage level."""
         from src.database.connection import create_secure_connection
 
         conn = create_secure_connection(test_settings)
@@ -72,7 +56,6 @@ class TestConnectionSecurity:
             conn.close()
 
     def test_external_access_disabled(self, test_settings: Settings) -> None:
-        """Layer 2: enable_external_access=false blocks filesystem functions."""
         from src.database.connection import create_secure_connection
 
         conn = create_secure_connection(test_settings)
@@ -86,7 +69,6 @@ class TestConnectionSecurity:
             conn.close()
 
     def test_config_locked(self, test_settings: Settings) -> None:
-        """Layer 3: lock_configuration=true prevents SET overrides."""
         from src.database.connection import create_secure_connection
 
         conn = create_secure_connection(test_settings)
@@ -97,7 +79,6 @@ class TestConnectionSecurity:
             conn.close()
 
     def test_select_works(self, test_settings: Settings) -> None:
-        """Read operations should still work normally."""
         from src.database.connection import create_secure_connection
 
         conn = create_secure_connection(test_settings)
@@ -108,7 +89,6 @@ class TestConnectionSecurity:
             conn.close()
 
     def test_connection_manager_context(self, test_settings: Settings) -> None:
-        """ConnectionManager should handle lifecycle correctly."""
         from src.database.connection import ConnectionManager
 
         with ConnectionManager(test_settings) as conn:
@@ -116,7 +96,6 @@ class TestConnectionSecurity:
             assert result[0] == 1
 
     def test_get_connection_context(self, test_settings: Settings) -> None:
-        """get_connection convenience function should work."""
         from src.database.connection import get_connection
 
         with get_connection(test_settings) as conn:
@@ -124,10 +103,7 @@ class TestConnectionSecurity:
             assert result[0] == 3
 
 class TestSandboxedExecutor:
-    """Tests for the sandboxed query executor."""
-
     def test_basic_execution(self, test_settings: Settings) -> None:
-        """Simple query execution returns a QueryResult."""
         from src.database.connection import create_secure_connection
         from src.database.executor import SandboxedExecutor
 
@@ -149,7 +125,6 @@ class TestSandboxedExecutor:
             executor.cleanup()
 
     def test_query_result_llm_context(self, test_settings: Settings) -> None:
-        """QueryResult.to_llm_context() produces useful LLM context."""
         from src.database.connection import create_secure_connection
         from src.database.executor import SandboxedExecutor
 
@@ -170,7 +145,6 @@ class TestSandboxedExecutor:
             executor.cleanup()
 
     def test_truncation_detection(self, test_settings: Settings) -> None:
-        """When result exceeds max_rows, truncation is detected."""
         from src.database.connection import create_secure_connection
         from src.database.executor import SandboxedExecutor
 
@@ -196,7 +170,6 @@ class TestSandboxedExecutor:
             executor.cleanup()
 
     def test_summary_stats(self, test_settings: Settings) -> None:
-        """Summary statistics are computed for numeric columns."""
         from src.database.connection import create_secure_connection
         from src.database.executor import SandboxedExecutor
 
@@ -219,7 +192,6 @@ class TestSandboxedExecutor:
             executor.cleanup()
 
     def test_parquet_output_readable(self, test_settings: Settings) -> None:
-        """The Parquet output file should be readable."""
         import pandas as pd
         from src.database.connection import create_secure_connection
         from src.database.executor import SandboxedExecutor
