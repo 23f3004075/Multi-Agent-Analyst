@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: multi-agent-analyst
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: ENVIRONMENT
+        value: production
+      - key: OPENROUTER_API_KEY
+        sync: false
