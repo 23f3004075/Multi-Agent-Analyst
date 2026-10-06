@@ -60,7 +60,6 @@ def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
     db_path = str(settings.database_path)
 
     try:
-        # Layer 1: Open read-only at the storage engine level
         conn = duckdb.connect(database=db_path, read_only=True)
         logger.info("DuckDB connection opened (read_only=True): %s", db_path)
 
@@ -71,19 +70,14 @@ def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
         ) from e
 
     try:
-        # If configuration is already locked by another connection to this database,
-        # external_access and security limits are already enforced.
         is_locked = conn.execute("SELECT current_setting('lock_configuration')").fetchone()[0]
         if str(is_locked).lower() == "true":
             logger.debug("DuckDB configuration already locked for active database instance")
             return conn
 
-        # Layer 2: Disable all external access (filesystem, HTTP, extensions)
-        # This is the PRIMARY defense against read_csv('/etc/passwd') attacks
         conn.execute("SET enable_external_access = false")
         logger.debug("External access disabled")
 
-        # Layer 4 (before lock): Resource exhaustion protection
         conn.execute(f"SET memory_limit = '{settings.db_memory_limit}'")
         conn.execute(f"SET threads = {settings.db_max_threads}")
         logger.debug(
@@ -92,8 +86,6 @@ def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
             settings.db_max_threads,
         )
 
-        # Layer 3: Lock configuration — MUST be last
-        # After this, no SET or PRAGMA can change any setting
         conn.execute("SET lock_configuration = true")
         logger.debug("Configuration locked")
 
@@ -103,7 +95,6 @@ def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
             f"Failed to apply security configuration: {e}"
         ) from e
 
-    # Verify the lockdown succeeded
     _verify_lockdown(conn)
 
     return conn
@@ -132,7 +123,6 @@ def _verify_lockdown(conn: duckdb.DuckDBPyConnection) -> None:
                     f"expected '{expected}'. Aborting."
                 )
         except duckdb.Error:
-            # If we can't even query the setting, something is very wrong
             raise DatabaseConnectionError(
                 f"Cannot verify security setting '{setting}'. "
                 f"DuckDB version may be incompatible."

@@ -29,7 +29,6 @@ def heal_node(state: AgentState) -> dict[str, Any]:
     error_history = list(state.get("error_history", []))
     current_tier = state.get("route_decision", "TIER_1_SLM")
 
-    # Collect the current error
     error = (
         state.get("ast_error")
         or state.get("execution_error")
@@ -45,13 +44,10 @@ def heal_node(state: AgentState) -> dict[str, Any]:
         retry_count, max_retries, error[:100], current_tier,
     )
 
-    # Escalation logic
     if current_tier == "TIER_1_SLM":
-        # Escalate from Tier 1 → Tier 2
         new_tier = "TIER_2_FRONTIER"
         logger.info("Escalating from Tier 1 to Tier 2")
     else:
-        # Already on Tier 2 → retry with error context
         new_tier = "TIER_2_FRONTIER"
         logger.info("Retrying Tier 2 with error context")
 
@@ -59,7 +55,6 @@ def heal_node(state: AgentState) -> dict[str, Any]:
         "retry_count": retry_count,
         "error_history": error_history,
         "route_decision": new_tier,
-        # Clear previous results so generator knows to self-heal
         "ast_valid": False,
         "ast_error": None,
     }

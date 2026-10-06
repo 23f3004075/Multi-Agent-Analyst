@@ -1,13 +1,3 @@
-/*
-   Enterprise SQL Agent — Vue.js 3 Application Logic (Strictly No Emojis)
-   Features:
-     - Progressive streaming execution with Server-Sent Events (SSE)
-     - Indication lights (pending, done, failed) across all 5 key stages
-     - Immediate results display as each component finishes
-     - Multiple prompt-aware chart options with 1-click switcher
-     - Interactive PDF report loader & previewer
-*/
-
 const { createApp, nextTick } = Vue;
 
 createApp({
@@ -20,7 +10,6 @@ createApp({
       error: null,
       activeTab: "summary",
       
-      // Indication lights for the 5 pipeline stages: pending, done, failed, idle
       stages: {
         sql: { key: "sql", label: "Generated SQL & Audit", status: "idle", error: null, timeMs: null },
         data: { key: "data", label: "Data Preview (10 Rows)", status: "idle", error: null, timeMs: null },
@@ -29,7 +18,6 @@ createApp({
         reports: { key: "reports", label: "Export Reports", status: "idle", error: null, timeMs: null }
       },
 
-      // Query results
       result: {
         guardrail_passed: true,
         guardrail_rejection_reason: "",
@@ -56,28 +44,23 @@ createApp({
         reports: {}
       },
 
-      // Multi-chart options
       chartOptions: [],
       selectedChartIndex: 0,
 
-      // PDF loader
       pdfPreviewUrl: null,
       pdfLoading: false,
 
-      // Table Catalog & 5-Row Previews
       tablesCatalog: [],
       hoveredTable: null,
       popoverStyle: { top: "0px", left: "0px" },
       hoverTimeout: null,
 
-      // Database health
       health: {
         status: "checking",
         table_count: 0,
         tables: []
       },
 
-      // Curated sample queries
       sampleQueries: [
         "Top 10 product categories by total sales revenue",
         "Monthly order trend and revenue for 2017 to 2018",
@@ -85,7 +68,6 @@ createApp({
         "Average delivery delay in days grouped by customer state"
       ],
 
-      // Telemetry & Log Store
       telemetryLogs: [],
       telemetryStats: {
         total_queries: 0,
@@ -135,23 +117,18 @@ createApp({
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
 
-      // Headers
       html = html.replace(/^### (.*$)/gim, '<h5 class="fw-bold mt-3 mb-2 text-primary">$1</h5>');
       html = html.replace(/^## (.*$)/gim, '<h4 class="fw-bold mt-3 mb-2 text-primary">$1</h4>');
       html = html.replace(/^# (.*$)/gim, '<h3 class="fw-bold mt-3 mb-2 text-primary">$1</h3>');
 
-      // Bold & Italic
       html = html.replace(/\*\*(.*?)\*\*/g, '<strong class="text-dark">$1</strong>');
       html = html.replace(/\*(.*?)\*/g, '<em>$1</em>');
 
-      // Inline code
       html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
 
-      // Bullet lists
       html = html.replace(/^\s*[-•]\s+(.*$)/gim, '<li class="mb-1">$1</li>');
       html = html.replace(/(<li.*<\/li>)/gms, '<ul class="ps-3 mb-3">$1</ul>');
 
-      // Paragraphs
       html = html.split("\n\n").map(p => {
         if (p.startsWith("<h") || p.startsWith("<ul")) return p;
         return `<p class="mb-2">${p.replace(/\n/g, "<br>")}</p>`;
@@ -159,6 +136,7 @@ createApp({
 
       return html;
     },
+
     async fetchTableCatalog() {
       try {
         const res = await fetch("/api/tables/preview");
@@ -216,6 +194,7 @@ createApp({
       }
       this.hoveredTable = null;
     },
+
     async checkHealth() {
       try {
         const res = await fetch("/api/health");
@@ -362,7 +341,6 @@ createApp({
         this.statusText = data.message || "Processing...";
       }
 
-      // ── Stage Updates ──────────────────────────────────────────────
       else if (data.event === "stage_update") {
         const stage = data.stage;
         if (this.stages[stage]) {
@@ -373,7 +351,6 @@ createApp({
           }
         }
 
-        // 1. SQL Stage
         if (stage === "sql" && data.data) {
           this.result.generated_sql = data.data.generated_sql || "";
           this.result.model_used = data.data.model_used || "N/A";
@@ -382,26 +359,22 @@ createApp({
           this.result.error_history = data.data.error_history || [];
         }
 
-        // 2. Data Preview Stage
         else if (stage === "data" && data.data) {
           this.result.data.columns = data.data.columns || [];
           this.result.data.rows = data.data.rows || [];
           this.result.data.total_rows = data.data.total_rows || (data.data.rows ? data.data.rows.length : 0);
           this.result.data.truncated = data.data.truncated || false;
 
-          // If active tab is still on a pending section, give immediate view!
           if (this.activeTab === "summary" && this.stages.summary.status === "pending") {
             this.activeTab = "data";
           }
         }
 
-        // 3. Chart Stage
         else if (stage === "chart" && data.data) {
           this.chartOptions = data.data.chart_options || [];
           this.selectedChartIndex = 0;
           
           if (this.chartOptions.length > 0) {
-            // Auto switch to chart for immediate visual feedback
             this.activeTab = "chart";
             nextTick(() => {
               this.renderActiveChart();
@@ -409,7 +382,6 @@ createApp({
           }
         }
 
-        // 4. Executive Summary Stage
         else if (stage === "summary" && data.data) {
           this.result.summary = data.data.summary || "";
           this.result.key_findings = data.data.key_findings || [];
@@ -427,7 +399,6 @@ createApp({
           }
         }
 
-        // 5. Reports Stage
         else if (stage === "reports" && data.data) {
           this.result.reports = data.data.reports || {};
           this.pdfLoading = false;
@@ -439,14 +410,12 @@ createApp({
         }
       }
 
-      // Final formatted response text
       else if (data.event === "final_response_ready") {
         if (data.final_response) {
           this.result.final_response = data.final_response;
         }
       }
 
-      // Security block
       else if (data.event === "guardrail_rejected") {
         this.result.guardrail_passed = false;
         this.result.guardrail_rejection_reason = data.reason || "Security policy violation";
@@ -458,7 +427,6 @@ createApp({
         this.fetchTelemetryLogs();
       }
 
-      // Pipeline complete
       else if (data.event === "complete") {
         this.result.total_latency_ms = data.total_latency_ms || elapsed;
         this.result.total_cost_usd = data.total_cost_usd || 0.0;
@@ -468,7 +436,6 @@ createApp({
         this.fetchTelemetryLogs();
       }
 
-      // General error
       else if (data.event === "error") {
         this.error = data.detail || "An error occurred during query processing.";
         this.fetchTelemetryLogs();
@@ -491,7 +458,6 @@ createApp({
         this.chartOptions = data.chart_options || [];
         this.selectedChartIndex = 0;
         
-        // Mark all done
         Object.keys(this.stages).forEach((k) => {
           this.stages[k].status = "done";
         });

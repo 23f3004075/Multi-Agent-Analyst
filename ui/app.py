@@ -22,15 +22,10 @@ from pathlib import Path
 
 import streamlit as st
 
-# Add project root to path for imports
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.config import get_settings
-
-# ─────────────────────────────────────────────────────────────────────
-# Page config
-# ─────────────────────────────────────────────────────────────────────
 
 st.set_page_config(
     page_title="Enterprise SQL Agent",
@@ -39,7 +34,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom CSS
 st.markdown("""
 <style>
     .main-header {
@@ -106,11 +100,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Sidebar
-# ─────────────────────────────────────────────────────────────────────
-
 with st.sidebar:
     st.markdown("### ⚙️ Configuration")
 
@@ -123,7 +112,6 @@ with st.sidebar:
 
     st.markdown("### 📊 Database Tables")
 
-    # Try to show table list
     try:
         import duckdb
         if settings.database_path.exists():
@@ -149,11 +137,6 @@ with st.sidebar:
     st.metric("Queries", st.session_state.query_count)
     st.metric("Total Cost", f"${st.session_state.total_cost:.4f}")
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Main content
-# ─────────────────────────────────────────────────────────────────────
-
 st.markdown('<div class="main-header">📊 Enterprise SQL Agent</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub-header">'
@@ -163,7 +146,6 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Query input
 query = st.text_area(
     "Ask a question about your data",
     placeholder="e.g., What is total revenue by product category? Show me the top 10 customers by order count.",
@@ -194,7 +176,6 @@ if run_button and query.strip():
             elapsed = 0
 
     if result:
-        # ── Routing badge ────────────────────────────────────────
         col_badge1, col_badge2, col_badge3 = st.columns(3)
 
         tier = result.get("route_decision", "unknown")
@@ -218,7 +199,6 @@ if run_button and query.strip():
             if retry_count > 0:
                 st.markdown(f"🔄 **{retry_count} retries**")
 
-        # ── Ambiguity banner ─────────────────────────────────────
         if result.get("ambiguity_flag") and result.get("interpretation_note"):
             st.markdown(
                 f'<div class="ambiguity-banner">'
@@ -227,7 +207,6 @@ if run_button and query.strip():
                 unsafe_allow_html=True,
             )
 
-        # ── Tabs ─────────────────────────────────────────────────
         tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "📝 Analysis", "📊 Charts", "📋 Data", "💾 Downloads", "🔍 SQL"
         ])
@@ -291,7 +270,6 @@ if run_button and query.strip():
             sql = result.get("generated_sql", "No SQL generated")
             st.code(sql, language="sql")
 
-            # Error history
             errors = result.get("error_history", [])
             if errors:
                 with st.expander("🔧 Error History (Self-Healing)"):

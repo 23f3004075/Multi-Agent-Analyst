@@ -37,11 +37,6 @@ from src.database.connection import create_secure_connection
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────
-# QueryResult: lightweight reference type for LangGraph state
-# ─────────────────────────────────────────────────────────────────────
-
-
 @dataclass(frozen=True)
 class QueryResult:
     """
@@ -55,23 +50,14 @@ class QueryResult:
     builder) without passing through the state serialization layer.
     """
 
-    # Identity
     result_id: str
-
-    # Data reference — downstream nodes read this file directly
     parquet_path: str
-
-    # Schema — column names and types (for LLM prompt context)
-    schema: list[dict[str, str]]  # [{"name": "col", "type": "VARCHAR"}, ...]
-
-    # Metadata
+    schema: list[dict[str, str]]
     row_count: int
     column_count: int
-    truncated: bool  # True if LIMIT was hit (fetched max_rows+1)
-
-    # LLM context — small enough to embed in prompts
-    sample_rows: list[dict[str, Any]]  # First 5 rows as dicts
-    summary_stats: dict[str, Any]  # Computed aggregates per numeric column
+    truncated: bool
+    sample_rows: list[dict[str, Any]]
+    summary_stats: dict[str, Any]
 
     def to_llm_context(self) -> str:
         """
@@ -89,17 +75,14 @@ class QueryResult:
                 "⚠️ Results were TRUNCATED — the full dataset may be larger."
             )
 
-        # Schema
         lines.append("\nColumns:")
         for col in self.schema:
             lines.append(f"  - {col['name']} ({col['type']})")
 
-        # Sample rows
         lines.append(f"\nSample (first {len(self.sample_rows)} rows):")
         for i, row in enumerate(self.sample_rows):
             lines.append(f"  Row {i + 1}: {row}")
 
-        # Summary stats
         if self.summary_stats:
             lines.append("\nSummary Statistics:")
             for col_name, stats in self.summary_stats.items():
@@ -112,15 +95,10 @@ class QueryResult:
 class ExecutionError:
     """Structured error from a failed query execution."""
 
-    error_type: str  # "timeout", "runtime", "memory"
+    error_type: str
     message: str
     sql: str
     suggestion: str = ""
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Sandboxed Executor
-# ─────────────────────────────────────────────────────────────────────
 
 
 class SandboxedExecutor:
@@ -213,18 +191,15 @@ class SandboxedExecutor:
                 except Exception:
                     logger.error("Failed to interrupt DuckDB connection", exc_info=True)
 
-        # Start query thread and watchdog
         query_thread = threading.Thread(target=_run_query, name="duckdb-query")
         watchdog_thread = threading.Thread(target=_watchdog, name="duckdb-watchdog")
 
         query_thread.start()
         watchdog_thread.start()
 
-        # Wait for query to complete (watchdog will interrupt if needed)
-        query_thread.join(timeout=timeout + 2.0)  # Grace period after interrupt
+        query_thread.join(timeout=timeout + 2.0)
         watchdog_thread.join(timeout=1.0)
 
-        # Check results
         if query_thread.is_alive():
             raise TimeoutError(
                 f"Query did not terminate within {timeout + 2.0}s even after "
@@ -233,7 +208,6 @@ class SandboxedExecutor:
 
         if "error" in error_container:
             err = error_container["error"]
-            # DuckDB raises InterruptException on conn.interrupt()
             if "interrupt" in str(err).lower():
                 raise TimeoutError(
                     f"Query cancelled after {timeout}s timeout. SQL: {sql[:200]}"
@@ -254,7 +228,6 @@ class SandboxedExecutor:
         truncated = len(df) >= max_rows
 
         if truncated:
-            # We fetched N+1 rows — trim to N and flag truncation
             df = df.head(max_rows - 1)
             logger.info(
                 "Result truncated: fetched %d rows (limit %d)",
@@ -262,22 +235,18 @@ class SandboxedExecutor:
                 max_rows - 1,
             )
 
-        # Generate unique result ID and save to Parquet
         result_id = str(uuid.uuid4())[:8]
         parquet_path = self._temp_dir / f"result_{result_id}.parquet"
         df.to_parquet(str(parquet_path), engine="pyarrow", index=False)
 
-        # Extract schema
         schema = [
             {"name": str(col), "type": str(dtype)}
             for col, dtype in zip(df.columns, df.dtypes)
         ]
 
-        # Sample rows (first 5)
         sample_df = df.head(5)
         sample_rows = sample_df.to_dict(orient="records")
 
-        # Summary statistics for numeric columns
         summary_stats = self._compute_summary_stats(df)
 
         return QueryResult(
@@ -318,7 +287,6 @@ class SandboxedExecutor:
 
             stats[str(col)] = col_stats
 
-        # Add categorical column cardinalities
         for col in df.select_dtypes(include=["object", "category", "string", "str"]).columns:
             n_unique = df[col].nunique()
             null_count = int(df[col].isna().sum())

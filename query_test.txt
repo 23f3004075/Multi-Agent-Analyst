@@ -15,28 +15,28 @@ Copy and paste any of these questions directly into the Natural-Language Query I
 SECTION 1: MEDIUM QUERIES (Multi-Table Joins & Grouped Aggregations)
 --------------------------------------------------------------------------------
 
-1. Top 10 product categories by total sales revenue for delivered orders : DONE
+1. Top 10 product categories by total sales revenue for delivered orders : DONE (10 rows)
    [Tests: orders + order_items + products + product_category, SUM(price), GROUP BY, ORDER BY, LIMIT]
 
-2. Monthly order count and total revenue generated throughout 2017 and 2018 : DONE
+2. Monthly order count and total revenue generated throughout 2017 and 2018 : DONE (21 rows)
    [Tests: orders + order_items, DATE_TRUNC('month'), SUM, COUNT(DISTINCT), filtering by order_status]
 
-3. What are the top 5 customer cities with the highest total order volume and their average order value?
+3. What are the top 5 customer cities with the highest total order volume and their average order value? : DONE (5 rows)
    [Tests: customers + orders + order_payments, GROUP BY city, COUNT(DISTINCT order_id), AVG]
 
-4. Show average freight cost and product price grouped by seller state
+4. Show average freight cost and product price grouped by seller state : DONE (23 rows)
    [Tests: sellers + order_items, AVG(freight_value), AVG(price), GROUP BY seller_state]
 
-5. What is the distribution of payment types by total transaction value and percentage share?
+5. What is the distribution of payment types by total transaction value and percentage share? : DONE (5 rows)
    [Tests: order_payments, SUM(payment_value), percentage calculation, GROUP BY payment_type]
 
-6. Average delivery duration in days from purchase to customer delivery for each customer state
+6. Average delivery duration in days from purchase to customer delivery for each customer state : DONE (27 rows)
    [Tests: orders + customers, DATE_DIFF('day', order_purchase_timestamp, order_delivered_customer_date)]
 
-7. List the top 10 sellers with the highest total revenue who have fulfilled at least 50 orders
+7. List the top 10 sellers with the highest total revenue who have fulfilled at least 50 orders : DONE (10 rows)
    [Tests: sellers + order_items + orders, HAVING COUNT(DISTINCT order_id) >= 50, SUM(price)]
 
-8. What is the average review score for each product category with at least 100 customer reviews?
+8. What is the average review score for each product category with at least 100 customer reviews? : DONE (52 rows)
    [Tests: order_reviews + orders + order_items + products + product_category, AVG(review_score), HAVING]
 
 

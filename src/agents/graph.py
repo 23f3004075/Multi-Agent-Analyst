@@ -44,11 +44,6 @@ from src.agents.state import AgentState
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Conditional edge functions
-# ─────────────────────────────────────────────────────────────────────
-
-
 def _after_guardrail(state: AgentState) -> str:
     """Route after guardrail: pass → router, reject → terminal."""
     if state.get("guardrail_passed", False):
@@ -91,7 +86,6 @@ def _after_analysis(state: AgentState) -> str:
         if retry_count < max_retries:
             return "heal"
 
-    # Proceed to compile reports
     return "compile_reports"
 
 
@@ -103,7 +97,6 @@ def _format_final_response(state: AgentState) -> dict[str, Any]:
     """
     parts: list[str] = []
 
-    # Analysis summary
     analysis = state.get("analysis")
     if analysis and analysis.get("summary"):
         parts.append(f"**Summary:** {analysis['summary']}")
@@ -120,32 +113,28 @@ def _format_final_response(state: AgentState) -> dict[str, Any]:
             for a in anomalies:
                 parts.append(f"  - {a}")
 
-    # Truncation warning
     result = state.get("query_result")
     if result and result.get("truncated"):
         parts.append(
             "\n*[Warning] Results were truncated. The full dataset may be larger.*"
         )
 
-    # Ambiguity note
     if state.get("ambiguity_flag") and state.get("interpretation_note"):
         parts.append(f"\n*Note: {state['interpretation_note']}*")
 
-    # Report links
     report_paths = state.get("report_paths", {})
     if report_paths:
         parts.append("\n**[Downloads]:**")
         for fmt, path in report_paths.items():
             parts.append(f"  - {fmt.upper()}: `{path}`")
 
-    # Model info
     model = state.get("model_used", "unknown")
     cost = state.get("total_cost_usd", 0.0)
     parts.append(f"\n*Model: {model} | Cost: ${cost:.4f}*")
 
     return {
         "final_response": "\n".join(parts) if parts else "Analysis complete.",
-        "total_latency_ms": (time.perf_counter() * 1000)  # Will be adjusted
+        "total_latency_ms": (time.perf_counter() * 1000)
     }
 
 
@@ -159,11 +148,6 @@ def _terminal_reject(state: AgentState) -> dict[str, Any]:
             f"Please rephrase your question as a data analysis query."
         )
     }
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Graph Builder
-# ─────────────────────────────────────────────────────────────────────
 
 
 def build_graph() -> StateGraph:
@@ -184,7 +168,6 @@ def build_graph() -> StateGraph:
     """
     graph = StateGraph(AgentState)
 
-    # ── Add nodes ────────────────────────────────────────────────────
     graph.add_node("guardrail", guardrail_node)
     graph.add_node("terminal_reject", _terminal_reject)
     graph.add_node("route_query", router_node)
@@ -198,59 +181,39 @@ def build_graph() -> StateGraph:
     graph.add_node("compile_reports", report_node)
     graph.add_node("format_response", _format_final_response)
 
-    # ── Add edges ────────────────────────────────────────────────────
-
-    # Entry point
     graph.set_entry_point("guardrail")
 
-    # Guardrail → route or reject
     graph.add_conditional_edges("guardrail", _after_guardrail, {
         "route_query": "route_query",
         "terminal_reject": "terminal_reject",
     })
 
-    # Terminal reject → END
     graph.add_edge("terminal_reject", END)
-
-    # Router → SQL generation
     graph.add_edge("route_query", "generate_sql")
-
-    # SQL generation → AST validation
     graph.add_edge("generate_sql", "validate_ast")
 
-    # AST validation → execute or heal
     graph.add_conditional_edges("validate_ast", _after_ast, {
         "execute_sql": "execute_sql",
         "heal": "heal",
         "terminal_error": "terminal_error",
     })
 
-    # Execution → visuals or heal
     graph.add_conditional_edges("execute_sql", _after_execution, {
         "generate_visuals": "generate_visuals",
         "heal": "heal",
         "terminal_error": "terminal_error",
     })
 
-    # Visualization → analyze data
     graph.add_edge("generate_visuals", "analyze_data")
 
-    # Analysis → compile reports or heal
     graph.add_conditional_edges("analyze_data", _after_analysis, {
         "compile_reports": "compile_reports",
         "heal": "heal",
     })
 
-    # Heal → back to SQL generation (the loop)
     graph.add_edge("heal", "generate_sql")
-
-    # Terminal error → END
     graph.add_edge("terminal_error", END)
-
-    # Reports → format response
     graph.add_edge("compile_reports", "format_response")
-
-    # Format response → END
     graph.add_edge("format_response", END)
 
     return graph
@@ -260,11 +223,6 @@ def compile_graph():
     """Build and compile the graph for execution."""
     graph = build_graph()
     return graph.compile()
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Convenience runner
-# ─────────────────────────────────────────────────────────────────────
 
 
 def run_query(

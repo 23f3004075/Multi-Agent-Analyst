@@ -38,22 +38,55 @@ def _extract_sql(raw: str) -> str:
     Handles common patterns:
         - ```sql\nSELECT...\n```
         - ```\nSELECT...\n```
-        - Trailing explanations after semicolon
+        - Trailing explanations with or without semicolon
         - Just the raw SQL
     """
-    # 1. Extract from markdown code fences if present
+    import sqlglot
+
     fences = re.findall(r"```(?:sql)?\s*([\s\S]*?)\s*```", raw, re.IGNORECASE)
     cleaned = fences[0].strip() if fences else raw.strip()
 
-    # 2. Extract starting from first WITH or SELECT
-    match = re.search(r"((?:WITH|SELECT)\b[\s\S]+)", cleaned, re.IGNORECASE)
+    match = re.search(r"((?:WITH\s+(?:RECURSIVE\s+)?[a-zA-Z_][a-zA-Z0-9_]*\s+AS\s*\(|SELECT\b)[\s\S]+)", cleaned, re.IGNORECASE)
     if match:
         cleaned = match.group(1).strip()
 
-    # 3. If there is a trailing explanation after a terminating semicolon, trim it
-    parts = re.split(r";(?:\s*\n|\s*$)", cleaned)
-    if parts and parts[0].strip():
-        cleaned = parts[0].strip()
+    if ";" in cleaned:
+        cleaned = cleaned.split(";")[0].strip()
+
+    try:
+        sqlglot.parse_one(cleaned, read="duckdb")
+        return cleaned.rstrip(";")
+    except Exception:
+        pass
+
+    limit_match = re.search(r"(.*?\bLIMIT\s+\d+)", cleaned, re.IGNORECASE | re.DOTALL)
+    if limit_match:
+        candidate = limit_match.group(1).strip()
+        try:
+            sqlglot.parse_one(candidate, read="duckdb")
+            return candidate
+        except Exception:
+            pass
+
+    lines = cleaned.split("\n")
+    while len(lines) > 1:
+        lines.pop()
+        candidate = "\n".join(lines).strip().rstrip(";")
+        try:
+            sqlglot.parse_one(candidate, read="duckdb")
+            return candidate
+        except Exception:
+            continue
+
+    words = cleaned.split()
+    while len(words) > 4:
+        words.pop()
+        candidate = " ".join(words).strip().rstrip(";")
+        try:
+            sqlglot.parse_one(candidate, read="duckdb")
+            return candidate
+        except Exception:
+            continue
 
     return cleaned.rstrip(";")
 
@@ -74,9 +107,7 @@ def sql_generator_node(state: AgentState) -> dict[str, Any]:
     client = _get_client()
     model_tier = "tier1" if tier == "TIER_1_SLM" else "tier2"
 
-    # Choose prompt based on whether this is a first attempt or self-heal
     if retry_count > 0 and state.get("generated_sql") and state.get("execution_error"):
-        # Self-healing: include error context
         system, user = build_self_heal_prompt(
             user_query=query,
             schema_ddl=ddl,
@@ -85,7 +116,6 @@ def sql_generator_node(state: AgentState) -> dict[str, Any]:
             error_history=error_history,
             metric_context=metric_ctx,
         )
-        # Always use Tier 2 for self-healing
         model_tier = "tier2"
     else:
         system, user = build_sql_generation_prompt(

@@ -21,28 +21,15 @@ import pytest
 
 from src.guardrails.sql_ast_checker import ASTValidationError, validate_sql
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Load payloads
-# ─────────────────────────────────────────────────────────────────────
-
 PAYLOADS_PATH = Path(__file__).resolve().parent.parent / "src" / "security" / "red_team_payloads.json"
-
 
 def load_payloads() -> list[dict]:
     """Load red-team payloads from JSON."""
     with open(PAYLOADS_PATH) as f:
         return json.load(f)
 
-
 PAYLOADS = load_payloads()
 PAYLOAD_IDS = [f"{p['id']}_{p['category']}" for p in PAYLOADS]
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Parameterized test: every payload MUST be rejected
-# ─────────────────────────────────────────────────────────────────────
-
 
 @pytest.mark.parametrize("payload", PAYLOADS, ids=PAYLOAD_IDS)
 def test_red_team_payload_blocked(payload: dict) -> None:
@@ -79,12 +66,6 @@ def test_red_team_payload_blocked(payload: dict) -> None:
         # as long as the payload didn't execute successfully
         pass
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Summary test: verify 100% block rate
-# ─────────────────────────────────────────────────────────────────────
-
-
 def test_red_team_summary() -> None:
     """Verify that ALL payloads are blocked (0 bypasses)."""
     bypasses = []
@@ -115,12 +96,6 @@ def test_red_team_summary() -> None:
 
     # All blocked
     print(f"\n✅ Red-team security: 0 of {len(PAYLOADS)} payloads bypassed (100% block rate)")
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Coverage: ensure we have enough payloads
-# ─────────────────────────────────────────────────────────────────────
-
 
 def test_red_team_coverage() -> None:
     """Ensure we have comprehensive coverage across attack categories."""

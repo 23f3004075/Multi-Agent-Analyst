@@ -20,12 +20,6 @@ from src.guardrails.sql_ast_checker import (
     validate_batch,
 )
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Valid queries — these MUST pass
-# ─────────────────────────────────────────────────────────────────────
-
-
 class TestValidQueries:
     """Ensure legitimate analytical queries pass validation."""
 
@@ -160,12 +154,6 @@ class TestValidQueries:
         )
         assert "UPPER" in result
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Blocked mutations — these MUST fail
-# ─────────────────────────────────────────────────────────────────────
-
-
 class TestBlockedMutations:
     """Ensure all write operations are blocked."""
 
@@ -205,12 +193,6 @@ class TestBlockedMutations:
         with pytest.raises(ASTValidationError):
             validate_sql("CREATE MACRO evil(x) AS x + 1")
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Blocked filesystem access — these MUST fail
-# ─────────────────────────────────────────────────────────────────────
-
-
 class TestBlockedFilesystem:
     """Ensure DuckDB filesystem functions are blocked."""
 
@@ -238,12 +220,6 @@ class TestBlockedFilesystem:
         with pytest.raises(ASTValidationError, match="blocked_function|unsafe_node"):
             validate_sql("SELECT * FROM read_blob('/etc/hosts')")
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Multi-statement injection — these MUST fail
-# ─────────────────────────────────────────────────────────────────────
-
-
 class TestMultiStatement:
     """Ensure multi-statement injection is blocked."""
 
@@ -258,12 +234,6 @@ class TestMultiStatement:
     def test_comment_obfuscated(self) -> None:
         with pytest.raises(ASTValidationError):
             validate_sql("SELECT/**/1;/**/DROP/**/TABLE/**/x")
-
-
-# ─────────────────────────────────────────────────────────────────────
-# DuckDB system commands — these MUST fail
-# ─────────────────────────────────────────────────────────────────────
-
 
 class TestBlockedSystemCommands:
     """Ensure DuckDB system/config commands are blocked."""
@@ -296,12 +266,6 @@ class TestBlockedSystemCommands:
         with pytest.raises(ASTValidationError):
             validate_sql("SET enable_external_access = true")
 
-
-# ─────────────────────────────────────────────────────────────────────
-# LIMIT injection
-# ─────────────────────────────────────────────────────────────────────
-
-
 class TestLimitInjection:
     """Ensure LIMIT is properly injected when missing."""
 
@@ -320,12 +284,6 @@ class TestLimitInjection:
         result = validate_sql("SELECT * FROM orders LIMIT 999999", max_rows=5001)
         assert "LIMIT" in result
         assert "5001" in result
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Edge cases
-# ─────────────────────────────────────────────────────────────────────
-
 
 class TestEdgeCases:
     """Edge cases and boundary conditions."""
@@ -348,12 +306,6 @@ class TestEdgeCases:
         sql = "SELECT * FROM (SELECT * FROM (SELECT * FROM orders LIMIT 5) t1) t2"
         result = validate_sql(sql)
         assert "orders" in result
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Batch validation
-# ─────────────────────────────────────────────────────────────────────
-
 
 class TestBatchValidation:
     """Test batch validation for red-team reporting."""

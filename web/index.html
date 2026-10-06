@@ -9,7 +9,6 @@
   <title>Enterprise SQL Agent - Autonomous Analytics</title>
   
   <script>
-    // Unregister any stale ServiceWorker from previous projects on localhost:8000
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.getRegistrations().then(function(regs) {
         for (let reg of regs) { reg.unregister(); }
@@ -17,15 +16,12 @@
     }
   </script>
 
-  <!-- Bootstrap 5.3 CSS (Local first, CDN fallback) -->
   <link rel="stylesheet" href="vendor/bootstrap.min.css?v=2.2">
   
-  <!-- Custom Corporate CSS -->
   <link rel="stylesheet" href="style.css?v=2.2">
 </head>
 <body>
   <div id="app">
-    <!-- Navigation Bar -->
     <nav class="navbar navbar-expand-lg navbar-dark bg-dark py-3">
       <div class="container-fluid px-4">
         <a class="navbar-brand d-flex align-items-center" href="#">
@@ -53,10 +49,8 @@
       </div>
     </nav>
 
-    <!-- Main Content Container -->
     <div class="container-fluid px-4 py-4">
       <div class="row g-4">
-        <!-- Database Schema & Table 5-Row Hover Explorer -->
         <div class="col-12" v-if="tablesCatalog && tablesCatalog.length">
           <div class="table-explorer-bar">
             <span class="table-explorer-title">Database Tables (Hover for 5-row preview):</span>
@@ -75,7 +69,6 @@
           </div>
         </div>
 
-        <!-- Left / Top Column: Query Input Panel -->
         <div class="col-12">
           <div class="card card-custom">
             <div class="card-header card-header-custom d-flex justify-content-between align-items-center">
@@ -98,7 +91,6 @@
                 ></textarea>
               </div>
 
-              <!-- Sample Queries -->
               <div class="mb-3">
                 <span class="small text-muted me-2 fw-semibold">Sample Queries:</span>
                 <button
@@ -113,7 +105,6 @@
                 </button>
               </div>
 
-              <!-- Action Bar -->
               <div class="d-flex justify-content-between align-items-center pt-2 border-top">
                 <div class="d-flex align-items-center">
                   <label for="maxRetries" class="small text-muted me-2">Max Retries:</label>
@@ -135,13 +126,11 @@
                 </button>
               </div>
 
-              <!-- Loading Progress Note -->
               <div v-if="loading && statusText" class="alert alert-info alert-custom mt-3 py-2 px-3 small mb-0">
                 <span class="spinner-grow spinner-grow-sm me-2" role="status"></span>
                 <span>{{ statusText }}</span>
               </div>
 
-              <!-- Error Alert -->
               <div v-if="error" class="alert alert-danger alert-custom mt-3 py-2 px-3 small mb-0">
                 <strong>Error:</strong> {{ error }}
               </div>
@@ -149,12 +138,10 @@
           </div>
         </div>
 
-        <!-- Indication Lights Progress Strip (Always Visible) -->
         <div class="col-12">
           <div class="stage-pipeline justify-content-between align-items-center">
             <span class="small fw-bold text-uppercase text-muted">Pipeline Progress:</span>
             
-            <!-- Stage 1: Executive Summary -->
             <div
               class="stage-badge"
               :class="['light-' + stages.summary.status, { 'active-stage': activeTab === 'summary' }]"
@@ -164,7 +151,6 @@
               <span>Executive Summary: {{ stages.summary.status.toUpperCase() }}</span>
             </div>
 
-            <!-- Stage 2: Interactive Chart -->
             <div
               class="stage-badge"
               :class="['light-' + stages.chart.status, { 'active-stage': activeTab === 'chart' }]"
@@ -174,7 +160,6 @@
               <span>Interactive Chart: {{ stages.chart.status.toUpperCase() }}</span>
             </div>
 
-            <!-- Stage 3: Data Preview (10 Rows) -->
             <div
               class="stage-badge"
               :class="['light-' + stages.data.status, { 'active-stage': activeTab === 'data' }]"
@@ -184,7 +169,6 @@
               <span>Data Preview (10 Rows): {{ stages.data.status.toUpperCase() }}</span>
             </div>
 
-            <!-- Stage 4: Generated SQL & Audit -->
             <div
               class="stage-badge"
               :class="['light-' + stages.sql.status, { 'active-stage': activeTab === 'sql' }]"
@@ -194,7 +178,6 @@
               <span>Generated SQL & Audit: {{ stages.sql.status.toUpperCase() }}</span>
             </div>
 
-            <!-- Stage 5: Export Reports -->
             <div
               class="stage-badge"
               :class="['light-' + stages.reports.status, { 'active-stage': activeTab === 'reports' }]"
@@ -206,7 +189,6 @@
           </div>
         </div>
 
-        <!-- Metrics Strip (Always Visible) -->
         <div class="col-12">
           <div class="row g-3">
             <div class="col-md-2 col-sm-4">
@@ -259,7 +241,6 @@
           </div>
         </div>
 
-        <!-- Ambiguity / Warning Banners -->
         <div v-if="result && !result.guardrail_passed" class="col-12">
           <div class="alert alert-danger alert-custom py-3 px-4 mb-0">
             <h6 class="fw-bold mb-1">[Security Block] Query Was Rejected</h6>
@@ -273,12 +254,10 @@
           </div>
         </div>
 
-        <!-- Result Tabs Section (Always Visible) -->
         <div class="col-12">
           <div class="card card-custom">
             <div class="card-header card-header-custom p-0">
               <ul class="nav nav-tabs px-3" role="tablist">
-                <!-- Tab 1: Executive Summary -->
                 <li class="nav-item">
                   <button
                     class="nav-link"
@@ -290,7 +269,6 @@
                   </button>
                 </li>
 
-                <!-- Tab 2: Interactive Chart -->
                 <li class="nav-item">
                   <button
                     class="nav-link"
@@ -302,7 +280,6 @@
                   </button>
                 </li>
 
-                <!-- Tab 3: Data Preview (10 Rows) -->
                 <li class="nav-item">
                   <button
                     class="nav-link"
@@ -314,7 +291,6 @@
                   </button>
                 </li>
 
-                <!-- Tab 4: Generated SQL & Audit -->
                 <li class="nav-item">
                   <button
                     class="nav-link"
@@ -326,7 +302,6 @@
                   </button>
                 </li>
 
-                <!-- Tab 5: Export Reports -->
                 <li class="nav-item">
                   <button
                     class="nav-link"
@@ -338,7 +313,6 @@
                   </button>
                 </li>
 
-                <!-- Tab 6: Execution & Failure Logs -->
                 <li class="nav-item">
                   <button
                     class="nav-link"
@@ -359,7 +333,6 @@
             </div>
 
             <div class="card-body p-4">
-              <!-- Tab 1: Executive Summary -->
               <div v-show="activeTab === 'summary'">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <h6 class="fw-bold text-uppercase text-muted small mb-0">Analysis Findings</h6>
@@ -395,9 +368,7 @@
                 </div>
               </div>
 
-              <!-- Tab 2: Interactive Chart -->
               <div v-show="activeTab === 'chart'">
-                <!-- Multiple Chart Options Toolbar -->
                 <div v-if="chartOptions.length > 0" class="chart-options-bar">
                   <span class="small fw-bold text-muted text-uppercase me-2">Chart View Options:</span>
                   <button
@@ -431,7 +402,6 @@
                 </div>
               </div>
 
-              <!-- Tab 3: Data Preview (10 Rows) -->
               <div v-show="activeTab === 'data'">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <h6 class="fw-bold text-uppercase text-muted small mb-0">
@@ -481,7 +451,6 @@
                 </div>
               </div>
 
-              <!-- Tab 4: SQL & Audit -->
               <div v-show="activeTab === 'sql'">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                   <h6 class="fw-bold text-uppercase text-muted small mb-0">AST-Verified SQL Statement</h6>
@@ -513,7 +482,6 @@
                 </div>
               </div>
 
-              <!-- Tab 5: Export Reports -->
               <div v-show="activeTab === 'reports'">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <h6 class="fw-bold text-uppercase text-muted small mb-0">Compiled Executive Reports</h6>
@@ -549,7 +517,6 @@
                   </a>
                 </div>
 
-                <!-- PDF Preview Loader -->
                 <div v-if="pdfPreviewUrl" class="pdf-viewer-container">
                   <iframe :src="pdfPreviewUrl" class="pdf-iframe" title="PDF Report Preview"></iframe>
                 </div>
@@ -561,7 +528,6 @@
                 </div>
               </div>
 
-              <!-- Tab 6: Telemetry Log Store & Failure Stats -->
               <div v-show="activeTab === 'telemetry'">
                 <div class="d-flex justify-content-between align-items-center mb-3">
                   <div>
@@ -581,7 +547,6 @@
                   </div>
                 </div>
 
-                <!-- Telemetry KPI Summary Cards -->
                 <div class="row g-3 mb-4">
                   <div class="col-md-2 col-sm-4">
                     <div class="metric-box">
@@ -630,7 +595,6 @@
                   </div>
                 </div>
 
-                <!-- Filter Pills -->
                 <div class="d-flex align-items-center gap-2 mb-3">
                   <span class="small fw-bold text-muted text-uppercase me-1">Filter Logs:</span>
                   <button
@@ -667,7 +631,6 @@
                   </button>
                 </div>
 
-                <!-- Telemetry Log Table -->
                 <div class="table-responsive border rounded" style="max-height: 480px; overflow-y: auto;">
                   <table class="table table-hover table-striped table-custom mb-0">
                     <thead>
@@ -745,7 +708,6 @@
                   </table>
                 </div>
 
-                <!-- Modal / Card for inspecting specific log detail -->
                 <div v-if="selectedLog" class="card mt-3 border-secondary">
                   <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
                     <span class="fw-bold small">
@@ -778,7 +740,6 @@
       </div>
     </div>
 
-    <!-- Floating 5-Row Table Hover Preview Popover -->
     <div
       v-if="hoveredTable"
       class="table-hover-popover"
@@ -828,13 +789,11 @@
     </div>
   </div>
 
-  <!-- Vendor Scripts (Local First with cache buster) -->
   <script src="vendor/vue.global.prod.js?v=2.2"></script>
   <script src="vendor/bootstrap.bundle.min.js?v=2.2"></script>
   <script src="vendor/marked.min.js?v=2.2"></script>
   <script src="vendor/plotly.min.js?v=2.2"></script>
 
-  <!-- Application JS -->
   <script src="app.js?v=2.4"></script>
 </body>
 </html>

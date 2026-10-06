@@ -51,7 +51,6 @@ def execution_node(state: AgentState) -> dict[str, Any]:
         try:
             result = executor.execute(sql, conn=conn)
 
-            # Convert QueryResult to dict for LangGraph serialization
             result_dict = {
                 "result_id": result.result_id,
                 "parquet_path": result.parquet_path,

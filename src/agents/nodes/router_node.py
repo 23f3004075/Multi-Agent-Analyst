@@ -20,7 +20,6 @@ from src.schema.semantic_layer import SemanticLayer
 
 logger = logging.getLogger(__name__)
 
-# Module-level singletons (initialized lazily)
 _schema_linker: SchemaLinker | None = None
 _router: QueryRouter | None = None
 _semantic_layer: SemanticLayer | None = None
@@ -63,23 +62,14 @@ def router_node(state: AgentState) -> dict[str, Any]:
 
     linker, router, semantic_layer, inspector = _get_components()
 
-    # Step 1: Schema linking — retrieve relevant tables
     linked_tables = linker.link(query)
-
-    # Step 2: Augment with tables needed for referenced metrics
     metric_tables = semantic_layer.get_tables_for_metrics(query)
-    all_tables = list(dict.fromkeys(linked_tables + metric_tables))  # Dedupe, preserve order
+    all_tables = list(dict.fromkeys(linked_tables + metric_tables))
 
-    # Step 3: Get DDL for linked tables
     linked_ddl = inspector.get_full_ddl(all_tables)
-
-    # Step 4: Get metric context
     metric_context = semantic_layer.get_metric_context(query)
-
-    # Step 5: Route
     decision = router.route(query, linked_tables=all_tables)
 
-    # Step 6: Generate interpretation note if ambiguous
     interpretation_note = None
     if decision.ambiguous:
         interpretation_note = (

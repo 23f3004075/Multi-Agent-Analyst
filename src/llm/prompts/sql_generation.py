@@ -12,10 +12,6 @@ Designed to maximize SQL accuracy by including:
 from __future__ import annotations
 
 
-# ─────────────────────────────────────────────────────────────────────
-# System prompts
-# ─────────────────────────────────────────────────────────────────────
-
 SQL_SYSTEM_PROMPT = """\
 You are a precise SQL query generator for a DuckDB analytical database.
 
@@ -27,8 +23,8 @@ RULES:
 5. Always include a LIMIT clause (max 5000 rows) unless the query is an aggregation.
 6. Use proper table aliases and explicit column references.
 7. For date operations, use DuckDB functions: DATE_TRUNC, DATE_DIFF, EXTRACT, etc.
-8. If a question is ambiguous, use the most reasonable interpretation and note your assumption.
-9. Output ONLY the SQL query — no explanation, no markdown code fences.
+8. If a question is ambiguous, use the most reasonable interpretation. Any assumption must be inside a SQL comment (-- comment), NEVER as free text.
+9. Output ONLY the raw SQL query. Do NOT add notes, explanations, or text outside the SQL query.
 """
 
 SQL_SYSTEM_PROMPT_TIER2 = """\
@@ -44,14 +40,10 @@ RULES:
 7. For multi-step analysis, use CTEs for clarity and readability.
 8. For time-series: use DATE_TRUNC for grouping, EXTRACT for components.
 9. For rankings: use ROW_NUMBER(), RANK(), or DENSE_RANK() with proper PARTITION BY.
-10. If a question is ambiguous, use the most reasonable interpretation and note your assumption.
-11. Output ONLY the SQL query — no explanation, no markdown code fences.
+10. If a question is ambiguous, use the most reasonable interpretation. Any assumption must be inside a SQL comment (-- comment), NEVER as free text.
+11. Output ONLY the raw SQL query. Do NOT add notes, explanations, or text outside the SQL query.
 """
 
-
-# ─────────────────────────────────────────────────────────────────────
-# User prompt templates
-# ─────────────────────────────────────────────────────────────────────
 
 SQL_USER_PROMPT_TEMPLATE = """\
 ## Database Schema
@@ -100,10 +92,6 @@ Fix the SQL query to address the error above. Common fixes:
 Generate ONLY the corrected SQL query:"""
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Analysis prompt templates
-# ─────────────────────────────────────────────────────────────────────
-
 ANALYSIS_SYSTEM_PROMPT = """\
 You are a data analyst producing concise, actionable insights from SQL query results.
 
@@ -142,11 +130,6 @@ ANALYSIS_USER_PROMPT_TEMPLATE = """\
 {result_context}
 
 Analyze these results and respond in the JSON format specified:"""
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Prompt builder functions
-# ─────────────────────────────────────────────────────────────────────
 
 
 def build_sql_generation_prompt(

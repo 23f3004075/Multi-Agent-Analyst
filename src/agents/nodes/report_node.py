@@ -33,7 +33,6 @@ def _safe_url_fetcher(url: str, timeout: int = 10) -> dict:
     Blocks file://, http://, https://, and everything else.
     """
     if url.startswith("data:"):
-        # Allow data URIs (embedded images)
         from weasyprint import default_url_fetcher
         return default_url_fetcher(url, timeout)
 
@@ -82,7 +81,6 @@ def _generate_pdf_reportlab(
 
         styles = getSampleStyleSheet()
 
-        # Custom typography styles
         title_style = ParagraphStyle(
             "DocTitle",
             parent=styles["Heading1"],
@@ -101,32 +99,29 @@ def _generate_pdf_reportlab(
             spaceBefore=12,
             spaceAfter=6,
         )
-        meta_style = ParagraphStyle(
-            "DocMeta",
-            parent=styles["Normal"],
-            fontName="Helvetica",
-            fontSize=8.5,
-            leading=12,
-            textColor=colors.HexColor("#666666"),
-        )
         body_style = ParagraphStyle(
             "DocBody",
             parent=styles["Normal"],
             fontName="Helvetica",
             fontSize=9.5,
-            leading=14,
-            textColor=colors.HexColor("#222222"),
+            leading=13,
+            textColor=colors.HexColor("#333333"),
         )
         kpi_style = ParagraphStyle(
-            "KpiSummary",
+            "DocKpi",
             parent=styles["Normal"],
             fontName="Helvetica",
             fontSize=10,
-            leading=15,
-            textColor=colors.HexColor("#0f3460"),
-            backColor=colors.HexColor("#eef4fc"),
-            borderPadding=8,
-            borderRadius=4,
+            leading=14,
+            textColor=colors.HexColor("#1a1a2e"),
+        )
+        meta_style = ParagraphStyle(
+            "DocMeta",
+            parent=styles["Italic"],
+            fontName="Helvetica-Oblique",
+            fontSize=8,
+            leading=10,
+            textColor=colors.HexColor("#666666"),
         )
         code_style = ParagraphStyle(
             "SqlCode",
@@ -142,7 +137,6 @@ def _generate_pdf_reportlab(
 
         story = []
 
-        # Header Title Banner
         story.append(Paragraph("Enterprise SQL Agent — Executive Report", title_style))
         story.append(Spacer(1, 4))
         
@@ -158,18 +152,15 @@ def _generate_pdf_reportlab(
         story.append(Spacer(1, 8))
         story.append(HRFlowable(width="100%", thickness=1.5, color=colors.HexColor("#0f3460"), spaceAfter=10))
 
-        # Query Section
         story.append(Paragraph("Analytical Question", h2_style))
         story.append(Paragraph(f"<b>Query:</b> {query}", body_style))
         story.append(Spacer(1, 8))
 
-        # Executive Summary Section
         if analysis and analysis.get("summary"):
             story.append(Paragraph("Executive Summary", h2_style))
             story.append(Paragraph(analysis.get("summary", ""), kpi_style))
             story.append(Spacer(1, 8))
 
-        # Key Findings
         if analysis and analysis.get("key_findings"):
             story.append(Paragraph("Key Findings", h2_style))
             for finding in analysis.get("key_findings", []):
@@ -177,7 +168,6 @@ def _generate_pdf_reportlab(
                 story.append(Spacer(1, 3))
             story.append(Spacer(1, 6))
 
-        # Anomalies
         if analysis and analysis.get("anomalies"):
             story.append(Paragraph("Anomalies & Notable Outliers", h2_style))
             for anomaly in analysis.get("anomalies", []):
@@ -185,7 +175,6 @@ def _generate_pdf_reportlab(
                 story.append(Spacer(1, 3))
             story.append(Spacer(1, 6))
 
-        # Optional Chart rendering if available
         if chart_specs and len(chart_specs) > 0:
             fig_dict = chart_specs[0].get("plotly_figure")
             if fig_dict:
@@ -202,12 +191,10 @@ def _generate_pdf_reportlab(
                 except Exception as chart_err:
                     logger.debug("Chart image export skipped for PDF: %s", chart_err)
 
-        # Data Sample Table (up to 15 rows)
         sample_rows = result.get("sample_rows", [])
         if sample_rows:
             story.append(Paragraph(f"Data Preview (Showing first {min(len(sample_rows), 15)} rows)", h2_style))
             headers = list(sample_rows[0].keys())
-            # Format table data
             table_data = [[Paragraph(f"<b>{col}</b>", meta_style) for col in headers]]
             for row in sample_rows[:15]:
                 formatted_row = []
@@ -219,7 +206,6 @@ def _generate_pdf_reportlab(
                     formatted_row.append(Paragraph(str_val, meta_style))
                 table_data.append(formatted_row)
 
-            # Usable width is 612 - 72 = 540 pt
             col_width = max(35, min(140, 540 // len(headers)))
             col_widths = [col_width] * len(headers)
 
@@ -238,14 +224,12 @@ def _generate_pdf_reportlab(
             story.append(t)
             story.append(Spacer(1, 12))
 
-        # SQL Query Statement
         if sql:
             story.append(Paragraph("Generated SQL Query", h2_style))
             escaped_sql = sql.replace("<", "&lt;").replace(">", "&gt;")
             story.append(Paragraph(escaped_sql, code_style))
             story.append(Spacer(1, 10))
 
-        # Footer
         story.append(Spacer(1, 15))
         story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cccccc"), spaceAfter=6))
         story.append(
@@ -273,7 +257,6 @@ def _generate_pdf(
     output_dir: Path,
 ) -> str | None:
     """Generate a PDF report using ReportLab (primary) with WeasyPrint fallback."""
-    # Try ReportLab first (works natively on Windows without C libraries)
     pdf_path = _generate_pdf_reportlab(
         result=result,
         analysis=analysis,
@@ -285,7 +268,6 @@ def _generate_pdf(
     if pdf_path:
         return pdf_path
 
-    # Optional fallback to WeasyPrint if available
     try:
         from jinja2 import BaseLoader, Environment
         from weasyprint import HTML
@@ -333,13 +315,11 @@ def _generate_excel(
         output_dir.mkdir(parents=True, exist_ok=True)
         excel_path = output_dir / f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
-        # strings_to_formulas=False blocks Excel formula injection
         workbook = xlsxwriter.Workbook(
             str(excel_path),
             {"strings_to_formulas": False},
         )
 
-        # ── Styles ───────────────────────────────────────────────────
         header_fmt = workbook.add_format({
             "bold": True,
             "bg_color": "#16213e",
@@ -366,7 +346,6 @@ def _generate_excel(
             "font_size": 10,
         })
 
-        # ── Tab 1: Executive Dashboard ───────────────────────────────
         ws1 = workbook.add_worksheet("Executive Dashboard")
         ws1.set_column("A:A", 25)
         ws1.set_column("B:B", 60)
@@ -398,19 +377,16 @@ def _generate_excel(
                     row += 1
                     ws1.write(row, 0, f"• {finding}", summary_fmt)
 
-        # ── Tab 2: Raw Data ──────────────────────────────────────────
         parquet_path = result.get("parquet_path")
         if parquet_path:
             try:
                 df = pd.read_parquet(parquet_path)
                 ws2 = workbook.add_worksheet("Raw Data")
 
-                # Write headers
                 for col_idx, col_name in enumerate(df.columns):
                     ws2.write(0, col_idx, str(col_name), header_fmt)
                     ws2.set_column(col_idx, col_idx, max(len(str(col_name)) + 2, 12))
 
-                # Write data (use write_string for safety)
                 for row_idx, row_data in enumerate(df.itertuples(index=False), 1):
                     for col_idx, value in enumerate(row_data):
                         if isinstance(value, (int, float)):
@@ -421,7 +397,6 @@ def _generate_excel(
             except Exception as e:
                 logger.warning("Failed to write data tab: %s", e)
 
-        # ── Tab 3: SQL Query ─────────────────────────────────────────
         ws3 = workbook.add_worksheet("SQL Query")
         ws3.set_column("A:A", 80)
         ws3.write(0, 0, "SQL Query", title_fmt)
@@ -459,14 +434,12 @@ def report_node(state: AgentState) -> dict[str, Any]:
             "report_error": "No data for report generation",
         }
 
-    # Generate Excel (faster, more reliable)
     excel_path = _generate_excel(result, analysis, query, sql, output_dir)
     if excel_path:
         report_paths["excel"] = excel_path
     else:
         errors.append("Excel generation failed")
 
-    # Generate PDF
     pdf_path = _generate_pdf(result, analysis, chart_specs, query, sql, output_dir)
     if pdf_path:
         report_paths["pdf"] = pdf_path

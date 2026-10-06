@@ -42,17 +42,12 @@ class RoutingDecision:
     """Result of the routing decision."""
 
     tier: Tier
-    confidence: float  # 0.0–1.0
+    confidence: float
     reason: str
-    features: dict  # Debug: extracted features
-    ambiguous: bool  # True if confidence < threshold
+    features: dict
+    ambiguous: bool
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Feature patterns (extractable from NL query, NOT from SQL)
-# ─────────────────────────────────────────────────────────────────────
-
-# Patterns that suggest simplicity (single-table, direct lookup)
 SIMPLE_PATTERNS: list[tuple[str, float]] = [
     (r"\bhow many\b", 0.2),
     (r"\bcount\b", 0.15),
@@ -65,7 +60,6 @@ SIMPLE_PATTERNS: list[tuple[str, float]] = [
     (r"\bmost (popular|common|frequent)\b", 0.15),
 ]
 
-# Patterns that suggest complexity (multi-table, temporal, comparative)
 COMPLEX_PATTERNS: list[tuple[str, float]] = [
     (r"\bcompare\b", 0.3),
     (r"\bcorrelat", 0.35),
@@ -92,9 +86,8 @@ COMPLEX_PATTERNS: list[tuple[str, float]] = [
     (r"\bcross.tab\b", 0.3),
 ]
 
-# Ambiguity signals (query needs clarification, not a bigger model)
 AMBIGUITY_PATTERNS: list[str] = [
-    r"^(how|what|show|tell)\b.{0,15}$",  # Very short/vague queries
+    r"^(how|what|show|tell)\b.{0,15}$",
     r"\b(it|them|those|that|these)\b(?!.*\b(table|column|order|product)\b)",
     r"\bthe data\b",
     r"\beverything\b",
@@ -119,21 +112,18 @@ class QueryRouter:
         linked_tables: list[str] | None = None,
     ) -> RoutingDecision:
         """
-        Determine the routing tier for a query.
+        Evaluate query complexity and determine model tier.
 
         Args:
-            query: Natural-language user question.
-            linked_tables: Tables identified by schema linker.
+            query: Natural-language query string.
+            linked_tables: Tables identified by the schema linker.
 
         Returns:
-            RoutingDecision with tier, confidence, and reasoning.
+            RoutingDecision with tier, confidence, and explanation.
         """
         features = self._extract_features(query, linked_tables or [])
-
-        # Compute complexity score (0 = simple, 1 = complex)
         complexity = self._compute_complexity(features)
 
-        # Determine tier
         if complexity >= 0.55:
             tier = Tier.TIER_2_FRONTIER
             confidence = min(complexity, 1.0)
@@ -145,7 +135,6 @@ class QueryRouter:
             if features["simple_signals"]:
                 reason += ": " + ", ".join(features["simple_signals"][:3])
 
-        # Check ambiguity
         ambiguous = (
             confidence < self._settings.router_confidence_threshold
             or features["ambiguity_score"] > 0.3
@@ -172,7 +161,6 @@ class QueryRouter:
         """Extract routing features from the NL query."""
         query_lower = query.lower()
 
-        # Simple signal matching
         simple_score = 0.0
         simple_signals = []
         for pattern, weight in SIMPLE_PATTERNS:
@@ -180,7 +168,6 @@ class QueryRouter:
                 simple_score += weight
                 simple_signals.append(pattern.strip("\\b"))
 
-        # Complex signal matching
         complex_score = 0.0
         complex_signals = []
         for pattern, weight in COMPLEX_PATTERNS:
@@ -188,7 +175,6 @@ class QueryRouter:
                 complex_score += weight
                 complex_signals.append(pattern.strip("\\b"))
 
-        # Schema complexity (from linker results)
         table_count = len(linked_tables)
         if table_count >= 4:
             complex_score += 0.3
@@ -197,7 +183,6 @@ class QueryRouter:
             complex_score += 0.15
             complex_signals.append(f"{table_count} tables linked")
 
-        # Query length heuristic (longer = usually more complex)
         word_count = len(query.split())
         if word_count > 25:
             complex_score += 0.15
@@ -206,7 +191,6 @@ class QueryRouter:
             simple_score += 0.1
             simple_signals.append("short query")
 
-        # Ambiguity detection
         ambiguity_score = 0.0
         for pattern in AMBIGUITY_PATTERNS:
             if re.search(pattern, query_lower, re.IGNORECASE):
@@ -233,11 +217,9 @@ class QueryRouter:
         simple = features["simple_score"]
         complex_ = features["complex_score"]
 
-        # Normalize: complexity = complex / (simple + complex + epsilon)
-        total = simple + complex_ + 0.1  # epsilon to avoid division by zero
+        total = simple + complex_ + 0.1
         complexity = complex_ / total
 
-        # Boost complexity if ambiguity is high
         if features["ambiguity_score"] > 0.3:
             complexity = min(complexity + 0.15, 1.0)
 

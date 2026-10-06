@@ -20,12 +20,6 @@ import pytest
 
 from src.config import Settings
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Fixtures
-# ─────────────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def temp_db(tmp_path: Path) -> Path:
     """Create a temporary DuckDB database with test data."""
@@ -52,7 +46,6 @@ def temp_db(tmp_path: Path) -> Path:
     conn.close()
     return db_path
 
-
 @pytest.fixture
 def test_settings(temp_db: Path) -> Settings:
     """Create Settings pointing to the temp database."""
@@ -63,12 +56,6 @@ def test_settings(temp_db: Path) -> Settings:
         db_query_timeout_seconds=3.0,
         db_max_result_rows=10,
     )
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Connection Security Tests
-# ─────────────────────────────────────────────────────────────────────
-
 
 class TestConnectionSecurity:
     """Verify the 4-layer security lockdown."""
@@ -135,12 +122,6 @@ class TestConnectionSecurity:
         with get_connection(test_settings) as conn:
             result = conn.execute("SELECT COUNT(*) FROM customers").fetchone()
             assert result[0] == 3
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Executor Tests
-# ─────────────────────────────────────────────────────────────────────
-
 
 class TestSandboxedExecutor:
     """Tests for the sandboxed query executor."""

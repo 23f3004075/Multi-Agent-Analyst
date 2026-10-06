@@ -5,10 +5,6 @@ Fast regex and heuristic-based pre-filter that runs BEFORE NeMo Guardrails.
 Catches obvious injection patterns with <1ms overhead, reducing the load
 on the heavier NeMo pipeline.
 
-This is NOT a replacement for NeMo Guardrails — it's a fast first pass
-that catches the low-hanging fruit before the more expensive LLM-based
-rails kick in.
-
 Patterns detected:
     - SQL keywords in user input (DROP, DELETE, UPDATE, ALTER, etc.)
     - Comment-based obfuscation (/**/, --, #)
@@ -42,41 +38,28 @@ class SanitizationResult:
 
     is_safe: bool
     cleaned_text: str
-    threat_category: Optional[str] = None  # "sql_injection", "prompt_injection", etc.
+    threat_category: Optional[str] = None
     explanation: Optional[str] = None
     matched_pattern: Optional[str] = None
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Detection Patterns
-# ─────────────────────────────────────────────────────────────────────
-
-# SQL injection patterns (case-insensitive)
 SQL_INJECTION_PATTERNS: list[tuple[str, str]] = [
-    # Direct SQL commands
     (r"\b(DROP|DELETE|TRUNCATE|ALTER|INSERT|UPDATE|REPLACE)\s+(TABLE|DATABASE|INDEX|COLUMN|INTO|FROM|SET)\b",
      "Direct SQL mutation command detected"),
-    # Semicolon-based chaining
     (r";\s*(DROP|DELETE|TRUNCATE|ALTER|INSERT|UPDATE|CREATE|ATTACH|COPY|INSTALL|LOAD)\b",
      "Semicolon-chained SQL injection attempt"),
-    # Comment obfuscation
     (r"/\*[\s\S]*?\*/\s*(DROP|DELETE|ALTER|UPDATE|INSERT)",
      "Comment-obfuscated SQL injection"),
-    # UNION-based injection
     (r"\bUNION\s+(ALL\s+)?SELECT\b",
      "UNION-based SQL injection attempt"),
-    # Filesystem access functions
     (r"\b(read_csv|read_parquet|read_json|read_blob|read_text|glob)\s*\(",
      "DuckDB filesystem access function"),
-    # Extension/system commands
     (r"\b(INSTALL|LOAD|ATTACH|DETACH|COPY\s+TO|EXPORT)\b",
      "DuckDB system command"),
-    # PRAGMA manipulation
     (r"\b(PRAGMA|SET\s+\w+\s*=|RESET\b)",
      "DuckDB configuration manipulation"),
 ]
 
-# Prompt injection patterns
 PROMPT_INJECTION_PATTERNS: list[tuple[str, str]] = [
     (r"ignore\s+(all\s+)?(previous|prior|above)\s+(instructions?|rules?|prompts?|guidelines?)",
      "Prompt override attempt"),
@@ -92,7 +75,6 @@ PROMPT_INJECTION_PATTERNS: list[tuple[str, str]] = [
      "Role hijacking attempt"),
 ]
 
-# Encoding/obfuscation patterns
 OBFUSCATION_PATTERNS: list[tuple[str, str]] = [
     (r"\\x[0-9a-fA-F]{2}",
      "Hex-encoded content detected"),
@@ -103,11 +85,6 @@ OBFUSCATION_PATTERNS: list[tuple[str, str]] = [
     (r"0x[0-9a-fA-F]+",
      "Hex literal that may encode an attack"),
 ]
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Sanitizer
-# ─────────────────────────────────────────────────────────────────────
 
 
 def sanitize_input(text: str) -> SanitizationResult:
@@ -132,7 +109,6 @@ def sanitize_input(text: str) -> SanitizationResult:
 
     cleaned = text.strip()
 
-    # Check SQL injection patterns
     for pattern, explanation in SQL_INJECTION_PATTERNS:
         match = re.search(pattern, cleaned, re.IGNORECASE)
         if match:
@@ -148,7 +124,6 @@ def sanitize_input(text: str) -> SanitizationResult:
                 matched_pattern=match.group(),
             )
 
-    # Check prompt injection patterns
     for pattern, explanation in PROMPT_INJECTION_PATTERNS:
         match = re.search(pattern, cleaned, re.IGNORECASE)
         if match:
@@ -164,7 +139,6 @@ def sanitize_input(text: str) -> SanitizationResult:
                 matched_pattern=match.group(),
             )
 
-    # Check obfuscation patterns (warning, not blocking — may have false positives)
     for pattern, explanation in OBFUSCATION_PATTERNS:
         match = re.search(pattern, cleaned, re.IGNORECASE)
         if match:
@@ -172,7 +146,6 @@ def sanitize_input(text: str) -> SanitizationResult:
                 "Obfuscation pattern detected (non-blocking): %s",
                 explanation,
             )
-            # Don't block — just log for now. NeMo will handle these.
 
     return SanitizationResult(
         is_safe=True,

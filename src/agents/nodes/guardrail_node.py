@@ -25,7 +25,6 @@ def guardrail_node(state: AgentState) -> dict[str, Any]:
     user_query = state["user_query"]
     logger.info("Guardrail check: '%s'", user_query[:80])
 
-    # Layer 1: Fast regex pre-filter
     sanitization = sanitize_input(user_query)
 
     if not sanitization.is_safe:
@@ -41,11 +40,6 @@ def guardrail_node(state: AgentState) -> dict[str, Any]:
             ),
             "cleaned_query": user_query,
         }
-
-    # Layer 2: NeMo Guardrails (if configured)
-    # TODO: Integrate NeMo Guardrails Colang rails
-    # For MVP, the regex pre-filter provides the first line of defense.
-    # NeMo will be added as a second pass for production deployment.
 
     return {
         "guardrail_passed": True,

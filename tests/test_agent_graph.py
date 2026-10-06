@@ -19,7 +19,6 @@ from src.agents.nodes.router_node import router_node
 from src.agents.nodes.terminal_error_node import terminal_error_node
 from src.agents.state import AgentState
 
-
 class TestAgentGraphStructure:
     """Validate state machine compilation and node definitions."""
 
@@ -42,7 +41,6 @@ class TestAgentGraphStructure:
         }
         assert expected_nodes.issubset(set(graph.nodes.keys()))
 
-
 class TestSecurityGuardrailFlow:
     """Ensure security boundary immediately terminates malicious prompts."""
 
@@ -60,7 +58,6 @@ class TestSecurityGuardrailFlow:
     def test_union_exfil_rejection(self) -> None:
         result = run_query("UNION SELECT * FROM sqlite_master --")
         assert result.get("guardrail_passed") is False
-
 
 class TestSelfHealingAndEscalation:
     """Verify self-healing logic, retry tracking, and model escalation."""
@@ -112,7 +109,6 @@ class TestSelfHealingAndEscalation:
 
         assert "wasn't able to generate a valid sql query" in response.lower()
         assert "Error 2" in response
-
 
 class TestRouterNode:
     """Verify schema linking and routing decision boundaries."""

@@ -42,10 +42,6 @@ class MetricDefinition:
     aliases: list[str] = field(default_factory=list)
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Olist Metric Glossary
-# ─────────────────────────────────────────────────────────────────────
-
 OLIST_METRICS: list[MetricDefinition] = [
     MetricDefinition(
         name="revenue",

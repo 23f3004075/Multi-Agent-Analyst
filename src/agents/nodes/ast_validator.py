@@ -37,7 +37,7 @@ def ast_validator_node(state: AgentState) -> dict[str, Any]:
         return {
             "ast_valid": True,
             "ast_error": None,
-            "generated_sql": cleaned_sql,  # Use the cleaned version
+            "generated_sql": cleaned_sql,
         }
     except ASTValidationError as e:
         logger.warning("AST validation failed: %s", e)

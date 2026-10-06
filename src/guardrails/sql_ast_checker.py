@@ -1,51 +1,35 @@
 """
-SQL AST Allowlist Validator.
+SQL AST Checker — Allowlist-Based AST Validation.
 
-SECURITY MODEL: ALLOWLIST, not denylist.
+Uses sqlglot to parse SQL into an Abstract Syntax Tree and validates
+every node against a strict allowlist. Rejects anything not explicitly
+permitted.
 
-Only explicitly approved AST node types are permitted. Everything else
-is rejected. This inverts the traditional security model from
-"block known-bad" to "allow known-good" — eliminating entire categories
-of bypass attacks.
+Guarantees:
+    - ONLY read operations (SELECT, CTEs, Unions) are permitted
+    - NO mutations (DROP, DELETE, INSERT, UPDATE, ALTER, TRUNCATE, etc.)
+    - NO filesystem access (read_csv, read_parquet, glob, etc.)
+    - NO network access (httpfs, s3, etc.)
+    - NO system commands (INSTALL, LOAD, ATTACH, PRAGMA, SET, etc.)
+    - NO multiple statements (semicolon-chaining injection)
+    - Enforces row-limit injection if no LIMIT clause is present
 
-This is DEFENSE-IN-DEPTH only. The primary security boundary is the
-DuckDB configuration lockdown (read_only=True, enable_external_access=false,
-lock_configuration=true) in connection.py.
-
-Attack vectors this layer catches (even though DuckDB config blocks them):
-    - read_csv('/etc/passwd')  → rejected: read_csv is not in SAFE_FUNCTIONS
-    - COPY TO ...              → rejected: Copy is not in SAFE_NODE_TYPES
-    - ATTACH ...               → rejected: not a SELECT root
-    - INSTALL/LOAD             → rejected: Command not in SAFE_NODE_TYPES
-    - SELECT 1; DROP TABLE x   → rejected: multi-statement
-    - UPDATE/DELETE/INSERT     → rejected: not a SELECT root
-
-Usage:
-    from src.guardrails.sql_ast_checker import validate_sql, ASTValidationError
-
-    try:
-        clean_sql = validate_sql("SELECT * FROM orders LIMIT 10")
-    except ASTValidationError as e:
-        print(f"Blocked: {e}")
+Design Principle: ALLOWLIST, NOT BLOCKLIST.
+If a node type is not in SAFE_NODE_TYPES, the query is REJECTED.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import Optional
-import re
 
 import sqlglot
 from sqlglot import exp
-from sqlglot.errors import ParseError
+from sqlglot.errors import ParseError, SqlglotError
 
 logger = logging.getLogger(__name__)
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Exceptions
-# ─────────────────────────────────────────────────────────────────────
 
 
 class ASTValidationError(Exception):
@@ -57,87 +41,48 @@ class ASTValidationError(Exception):
         super().__init__(f"[{violation_type}] {message}")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Allowlist: Exhaustive set of safe AST node types
-# ─────────────────────────────────────────────────────────────────────
-
 # fmt: off
 SAFE_NODE_TYPES: frozenset[type] = frozenset({
-    # ── Query structure ──
     exp.Select, exp.From, exp.Where, exp.Group, exp.Having,
     exp.Order, exp.Limit, exp.Offset, exp.Distinct, exp.Star,
     exp.Subquery, exp.Exists, exp.With,
-
-    # ── CTE ──
     exp.CTE,
-
-    # ── Set operations ──
     exp.Union, exp.Intersect, exp.Except,
-
-    # ── Joins ──
     exp.Join, exp.Lateral,
-
-    # ── Column references ──
     exp.Column, exp.Table, exp.Alias, exp.Identifier,
     exp.Dot, exp.Paren, exp.Ordered, exp.Var,
-
-    # ── Literals ──
     exp.Literal, exp.Null, exp.Boolean,
-
-    # ── Comparisons ──
     exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE,
     exp.Between, exp.In, exp.Like, exp.ILike, exp.Is,
     exp.RegexpLike,
-
-    # ── Logical ──
     exp.And, exp.Or, exp.Not,
-
-    # ── Arithmetic ──
     exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Neg,
     exp.IntDiv,
-
-    # ── Aggregate functions ──
     exp.Count, exp.Sum, exp.Avg, exp.Min, exp.Max,
     exp.ArrayAgg, exp.GroupConcat, exp.Variance, exp.Stddev,
     exp.ApproxDistinct, exp.CountIf,
-
-    # ── Window functions ──
     exp.Window, exp.WindowSpec, exp.RowNumber, exp.Rank,
     exp.DenseRank, exp.Ntile, exp.NthValue,
     exp.FirstValue, exp.LastValue,
     exp.Lead, exp.Lag,
     exp.PartitionedByProperty,
-
-    # ── Conditional ──
     exp.Case, exp.If, exp.Coalesce, exp.Nullif,
-
-    # ── Type casting ──
     exp.Cast, exp.TryCast, exp.DataType,
-
-    # ── String functions ──
     exp.Substring, exp.Upper, exp.Lower, exp.Trim,
     exp.Length, exp.Concat, exp.ConcatWs,
     exp.Replace, exp.Left, exp.Right,
     exp.Initcap, exp.RegexpExtract, exp.RegexpReplace,
     exp.Split, exp.DPipe,
-
-    # ── Numeric functions ──
     exp.Round, exp.Floor, exp.Ceil, exp.Abs,
     exp.Ln, exp.Log, exp.Exp, exp.Pow, exp.Sqrt,
     exp.Greatest, exp.Least, exp.Sign,
-
-    # ── Date/time functions ──
     exp.DateAdd, exp.DateDiff, exp.DateTrunc,
     exp.Extract, exp.CurrentDate, exp.CurrentTimestamp,
     exp.TimeToStr, exp.StrToTime, exp.TsOrDsToDate,
     exp.Interval, exp.DateSub, exp.Year, exp.Month, exp.Day,
     exp.Week,
-
-    # ── Conversion ──
     exp.Unnest,
-
-    # ── Misc safe expressions ──
-    exp.Anonymous,  # Covers dialect-specific functions by name (validated below)
+    exp.Anonymous,
     exp.Tuple, exp.Array,
     exp.Parameter, exp.Placeholder,
     exp.Properties, exp.Property,
@@ -150,75 +95,48 @@ SAFE_NODE_TYPES: frozenset[type] = frozenset({
 # fmt: on
 
 
-# Functions allowed when they appear as Anonymous nodes
-# (dialect-specific functions that sqlglot doesn't have typed nodes for)
 SAFE_ANONYMOUS_FUNCTIONS: frozenset[str] = frozenset({
-    # DuckDB aggregates
     "list_agg", "string_agg", "median", "quantile", "mode",
     "percentile_cont", "percentile_disc", "approx_count_distinct",
     "arg_min", "arg_max", "bit_and", "bit_or", "bit_xor",
     "bool_and", "bool_or", "corr", "covar_pop", "covar_samp",
     "entropy", "kurtosis", "skewness",
-    # DuckDB string
     "regexp_matches", "starts_with", "ends_with", "contains",
     "strip_accents", "reverse", "lpad", "rpad",
     "ltrim", "rtrim", "format", "printf", "md5", "hash",
-    # DuckDB date/time
     "date_part", "date_trunc", "make_date", "make_timestamp",
     "strftime", "strptime", "age", "datediff", "dateadd",
     "last_day", "monthname", "dayname",
-    # DuckDB numeric
     "random", "setseed",
-    # DuckDB list/struct
     "list_value", "struct_pack", "list_aggregate",
     "list_sort", "list_distinct", "list_unique",
     "list_any_value", "list_filter", "list_transform",
-    # DuckDB utility
     "typeof", "current_schema", "current_database",
     "row_number", "rank", "dense_rank",
-    # Standard SQL
     "coalesce", "nullif", "ifnull", "nvl", "nvl2",
     "greatest", "least",
     "to_char", "to_number", "to_date", "to_timestamp",
 })
 
 
-# Explicitly BLOCKED function names (even if wrapped in Anonymous)
-# These are DuckDB-specific functions that can access the filesystem
 BLOCKED_FUNCTIONS: frozenset[str] = frozenset({
-    # Filesystem access
     "read_csv", "read_csv_auto", "read_parquet", "read_json",
     "read_json_auto", "read_json_objects", "read_blob",
     "read_text", "glob", "read_ndjson", "read_ndjson_auto",
     "read_ndjson_objects",
-    # Data export
     "copy", "export_database", "write_parquet", "write_csv",
-    # Extension management
     "install", "load", "force_install",
-    # Database management
     "attach", "detach", "use",
-    # Configuration
     "set", "reset", "current_setting",
-    # System
     "system", "shell", "getenv",
-    # DuckDB system table functions (info disclosure)
     "duckdb_settings", "duckdb_functions", "duckdb_extensions",
     "duckdb_tables", "duckdb_columns", "duckdb_views",
     "duckdb_types", "duckdb_databases", "duckdb_schemas",
-    # Encoding bypass
     "char", "chr",
-    # Resource exhaustion
     "generate_series", "range", "repeat",
 })
 
-
-# Maximum allowed query depth (prevents stack overflow from deeply nested CTEs)
 MAX_AST_DEPTH = 50
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Validation Result
-# ─────────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -229,12 +147,7 @@ class ValidationResult:
     cleaned_sql: str = ""
     error: Optional[str] = None
     violation_type: Optional[str] = None
-    node_type: Optional[str] = None  # The offending node type, if any
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Structural Security Checks
-# ─────────────────────────────────────────────────────────────────────
+    node_type: Optional[str] = None
 
 
 def _check_recursive_cte(tree: exp.Expression) -> None:
@@ -303,6 +216,8 @@ def _check_tautologies(tree: exp.Expression) -> None:
                         f"Tautological condition detected ({eq.sql()}).",
                         violation_type="tautology",
                     )
+
+
 def _check_string_escapes(tree: exp.Expression) -> None:
     """Detect parser-differential string escape injections (e.g. embedded DDL / comments)."""
     for lit in tree.find_all(exp.Literal):
@@ -318,13 +233,6 @@ def _check_string_escapes(tree: exp.Expression) -> None:
                     "Backslash-escaped quote with comment detected inside string literal",
                     violation_type="string_escape",
                 )
-
-
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Validator
-# ─────────────────────────────────────────────────────────────────────
 
 
 def validate_sql(
@@ -362,19 +270,16 @@ def validate_sql(
     if not sql:
         raise ASTValidationError("Empty SQL query", violation_type="empty")
 
-    # ── Step 1: Parse ────────────────────────────────────────────────
     try:
         statements = sqlglot.parse(sql, dialect=dialect)
-    except ParseError as e:
+    except (ParseError, SqlglotError) as e:
         raise ASTValidationError(
             f"SQL syntax error: {e}",
             violation_type="parse_error",
         ) from e
 
-    # Filter out None entries (blank statements from trailing semicolons)
     statements = [s for s in statements if s is not None]
 
-    # ── Step 2: Single statement only ────────────────────────────────
     if len(statements) == 0:
         raise ASTValidationError(
             "No valid SQL statements found",
@@ -390,14 +295,12 @@ def validate_sql(
 
     tree = statements[0]
 
-    # ── Step 3: Root must be SELECT-like ─────────────────────────────
     _validate_root_type(tree)
 
-    # ── Step 4: Walk every node against allowlist ────────────────────
     depth = 0
     for node in tree.walk(bfs=True):
         depth += 1
-        if depth > MAX_AST_DEPTH * 100:  # rough node count heuristic
+        if depth > MAX_AST_DEPTH * 100:
             raise ASTValidationError(
                 f"Query too complex: AST has more than {MAX_AST_DEPTH * 100} nodes. "
                 f"This may indicate a denial-of-service attempt.",
@@ -405,18 +308,15 @@ def validate_sql(
             )
         _validate_node(node)
 
-    # ── Step 5: Additional structural checks ─────────────────────────
     _check_recursive_cte(tree)
     _check_excessive_cross_joins(tree)
     _check_network_urls(tree)
     _check_tautologies(tree)
     _check_string_escapes(tree)
 
-    # ── Step 6: Inject LIMIT if missing ──────────────────────────────
     if inject_limit:
         tree = _ensure_limit(tree, max_rows)
 
-    # ── Step 7: Return cleaned SQL ───────────────────────────────────
     cleaned = tree.sql(dialect=dialect)
     logger.debug("AST validation passed: %s", cleaned[:200])
     return cleaned
@@ -426,11 +326,9 @@ def _validate_root_type(tree: exp.Expression) -> None:
     """Ensure the root node is a SELECT, UNION, or CTE wrapping a SELECT."""
     root_type = type(tree)
 
-    # Direct SELECT, UNION, INTERSECT, EXCEPT
     if root_type in {exp.Select, exp.Union, exp.Intersect, exp.Except}:
         return
 
-    # CTE (WITH ... SELECT) — root is a Select with CTEs attached
     if root_type == exp.Select and tree.find(exp.CTE):
         return
 
@@ -445,9 +343,7 @@ def _validate_node(node: exp.Expression) -> None:
     """Validate a single AST node against the allowlist."""
     node_type = type(node)
 
-    # Check against safe type set
     if node_type not in SAFE_NODE_TYPES:
-        # Check if it's a subclass of a safe type (e.g., custom Func subclass)
         if not any(issubclass(node_type, safe) for safe in SAFE_NODE_TYPES):
             raise ASTValidationError(
                 f"Unsafe AST node type: {node_type.__name__}. "
@@ -456,7 +352,6 @@ def _validate_node(node: exp.Expression) -> None:
                 violation_type="unsafe_node",
             )
 
-    # For function calls (Anonymous, Func subclasses), check the function name
     if isinstance(node, (exp.Anonymous, exp.Func)):
         func_name = _get_function_name(node)
         if func_name:
@@ -468,7 +363,6 @@ def _get_function_name(node: exp.Expression) -> str:
     if isinstance(node, exp.Anonymous):
         return node.name.lower() if hasattr(node, "name") else ""
 
-    # For typed function nodes, get the SQL name
     if hasattr(node, "sql_name"):
         return node.sql_name().lower()
     if hasattr(node, "key"):
@@ -496,15 +390,12 @@ def _ensure_limit(tree: exp.Expression, max_rows: int) -> exp.Expression:
     We inject max_rows + 1 so the executor can detect truncation
     (if exactly max_rows+1 are returned, results were truncated).
     """
-    # Find the outermost SELECT
     root_select = tree if isinstance(tree, exp.Select) else tree.find(exp.Select)
     if root_select is None:
         return tree
 
-    # Check if LIMIT already exists
     existing_limit = root_select.find(exp.Limit)
     if existing_limit is not None:
-        # Validate existing LIMIT isn't absurdly large
         limit_val = existing_limit.find(exp.Literal)
         if limit_val and limit_val.is_int:
             try:
@@ -519,16 +410,10 @@ def _ensure_limit(tree: exp.Expression, max_rows: int) -> exp.Expression:
                 pass
         return tree
 
-    # No LIMIT found — inject one
     logger.debug("Injecting LIMIT %d (no LIMIT clause found)", max_rows)
     root_select.set("limit", exp.Limit(expression=exp.Literal.number(max_rows)))
 
     return tree
-
-
-# ─────────────────────────────────────────────────────────────────────
-# Batch Validation (for testing)
-# ─────────────────────────────────────────────────────────────────────
 
 
 def validate_batch(

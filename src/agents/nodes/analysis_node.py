@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 
 from src.agents.state import AgentState
@@ -44,13 +45,11 @@ def analysis_node(state: AgentState) -> dict[str, Any]:
             "sanity_check_warning": "No query results to analyze",
         }
 
-    # ── Sanity checks ────────────────────────────────────────────────
     sanity_passed, sanity_warning = _run_sanity_checks(result)
 
     if not sanity_passed:
         logger.warning("Sanity check failed: %s", sanity_warning)
 
-    # ── LLM-powered analysis ─────────────────────────────────────────
     try:
         llm_context = sanitize_data_for_llm(result.get("llm_context", ""))
         system, user = build_analysis_prompt(
@@ -63,14 +62,20 @@ def analysis_node(state: AgentState) -> dict[str, Any]:
         response = client.generate(
             prompt=user,
             system=system,
-            model_tier="tier2",  # Always use frontier for analysis quality
+            model_tier="tier2",
             temperature=0.0,
             max_tokens=512,
             json_mode=True,
             reasoning=False,
         )
 
-        analysis = json.loads(response.content)
+        raw = response.content.strip()
+        fences = re.findall(r"```(?:json)?\s*([\s\S]*?)\s*```", raw, re.IGNORECASE)
+        candidate = fences[0].strip() if fences else raw
+        brace_match = re.search(r"(\{[\s\S]*\})", candidate)
+        if brace_match:
+            candidate = brace_match.group(1).strip()
+        analysis = json.loads(candidate, strict=False)
         prev_cost = state.get("total_cost_usd", 0.0)
 
         return {
@@ -82,7 +87,6 @@ def analysis_node(state: AgentState) -> dict[str, Any]:
 
     except (json.JSONDecodeError, Exception) as e:
         logger.warning("Analysis LLM failed: %s", e)
-        # Graceful degradation: return basic analysis without LLM
         return {
             "analysis": {
                 "summary": f"Query returned {result.get('row_count', 0)} rows.",
@@ -105,18 +109,15 @@ def _run_sanity_checks(result: dict) -> tuple[bool, str | None]:
     """
     row_count = result.get("row_count", 0)
 
-    # Check 1: Zero rows
     if row_count == 0:
         return False, "Query returned zero rows — the filter may be too restrictive."
 
-    # Check 2: All NULL values in sample
     sample = result.get("sample_rows", [])
     if sample:
         first_row = sample[0]
         if all(v is None for v in first_row.values()):
             return False, "All values in the first row are NULL — possible column mismatch."
 
-    # Check 3: Absurd magnitudes in numeric stats
     stats = result.get("summary_stats", {})
     for col, col_stats in stats.items():
         if isinstance(col_stats, dict) and "max" in col_stats:

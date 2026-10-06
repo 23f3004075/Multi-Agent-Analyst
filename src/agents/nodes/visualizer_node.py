@@ -9,10 +9,6 @@ Falls back to rule-based chart type selection if LLM suggestion fails.
 from __future__ import annotations
 
 import logging
-from typing import Any
-
-import pandas as pd
-
 import re
 from typing import Any
 
@@ -22,17 +18,16 @@ from src.agents.state import AgentState, ChartSpec
 
 logger = logging.getLogger(__name__)
 
-# Premium modern color sequence for Plotly charts
 COLOR_PALETTE = [
-    "#2563eb",  # Royal Blue
-    "#06b6d4",  # Cyan
-    "#8b5cf6",  # Violet
-    "#ec4899",  # Pink
-    "#f59e0b",  # Amber
-    "#10b981",  # Emerald
-    "#6366f1",  # Indigo
-    "#f97316",  # Orange
-    "#14b8a6",  # Teal
+    "#2563eb",
+    "#06b6d4",
+    "#8b5cf6",
+    "#ec4899",
+    "#f59e0b",
+    "#10b981",
+    "#6366f1",
+    "#f97316",
+    "#14b8a6",
 ]
 
 
@@ -68,7 +63,6 @@ def _build_single_figure(
     import plotly.express as px
 
     try:
-        # Clone df preview up to 50 rows for snappy rendering
         plot_df = df.head(50).copy()
 
         if chart_type == "bar":
@@ -83,7 +77,6 @@ def _build_single_figure(
             fig.update_layout(showlegend=bool(group))
 
         elif chart_type == "horizontal_bar":
-            # Sort for clean horizontal presentation
             if y and y in plot_df.columns:
                 sorted_df = plot_df.sort_values(by=y, ascending=True)
             else:
@@ -121,7 +114,6 @@ def _build_single_figure(
             )
 
         elif chart_type == "pie":
-            # For donut/pie, limit to top 10 categories
             pie_df = plot_df.head(10)
             fig = px.pie(
                 pie_df,
@@ -186,7 +178,6 @@ def _generate_all_chart_options(
     datetime_cols = df.select_dtypes(include=["datetime", "datetimetz"]).columns.tolist()
     object_cols = df.select_dtypes(include=["object", "category", "string"]).columns.tolist()
 
-    # Detect string columns that parse as dates
     for col in list(object_cols):
         sample = df[col].dropna().head(5)
         if len(sample) > 0:
@@ -197,7 +188,6 @@ def _generate_all_chart_options(
             except (ValueError, TypeError):
                 pass
 
-    # Single aggregate row / KPI
     if len(df) == 1 and len(df.columns) <= 4:
         return [
             ChartSpec(
@@ -208,7 +198,6 @@ def _generate_all_chart_options(
             )
         ]
 
-    # Primary dimensions
     primary_x = None
     primary_y = None
     group_col = None
@@ -228,10 +217,8 @@ def _generate_all_chart_options(
         primary_x = df.columns[0]
         primary_y = df.columns[1]
 
-    # Detect prompt preferences
     prompt_pref = _detect_prompt_preference(user_query)
 
-    # Determine default chart type
     if prompt_pref:
         default_type = prompt_pref
     elif datetime_cols:
@@ -241,10 +228,8 @@ def _generate_all_chart_options(
     else:
         default_type = "bar"
 
-    # Build candidates
     chart_candidates = []
 
-    # 1. Vertical Bar Chart
     if primary_x and primary_y:
         chart_candidates.append({
             "type": "bar",
@@ -255,7 +240,6 @@ def _generate_all_chart_options(
             "group": group_col,
         })
 
-    # 2. Horizontal Bar Chart (especially great for categories)
     if object_cols and primary_y:
         chart_candidates.append({
             "type": "horizontal_bar",
@@ -266,7 +250,6 @@ def _generate_all_chart_options(
             "group": group_col,
         })
 
-    # 3. Line Chart
     if (datetime_cols or len(df) > 3) and primary_x and primary_y:
         chart_candidates.append({
             "type": "line",
@@ -277,7 +260,6 @@ def _generate_all_chart_options(
             "group": group_col,
         })
 
-    # 4. Area Chart
     if (datetime_cols or len(df) > 3) and primary_x and primary_y:
         chart_candidates.append({
             "type": "area",
@@ -288,7 +270,6 @@ def _generate_all_chart_options(
             "group": group_col,
         })
 
-    # 5. Donut / Pie Chart (if reasonable category cardinality)
     if object_cols and primary_y and df[primary_x].nunique() <= 16:
         chart_candidates.append({
             "type": "pie",
@@ -299,7 +280,6 @@ def _generate_all_chart_options(
             "group": None,
         })
 
-    # 6. Treemap Chart
     if object_cols and primary_y and len(df) >= 3:
         chart_candidates.append({
             "type": "treemap",
@@ -310,7 +290,6 @@ def _generate_all_chart_options(
             "group": None,
         })
 
-    # 7. Scatter Plot (if 2+ numeric columns)
     if len(numeric_cols) >= 2:
         chart_candidates.append({
             "type": "scatter",
@@ -321,16 +300,13 @@ def _generate_all_chart_options(
             "group": object_cols[0] if object_cols else None,
         })
 
-    # Build figures for each candidate
     generated_specs: list[ChartSpec] = []
     seen_types = set()
 
-    # If prompt requested a specific type that's among candidates, prioritize it
     candidate_types = [c["type"] for c in chart_candidates]
     if default_type not in candidate_types and candidate_types:
         default_type = candidate_types[0]
 
-    # Reorder so default_type comes first
     chart_candidates.sort(key=lambda c: 0 if c["type"] == default_type else 1)
 
     for cand in chart_candidates:
@@ -380,7 +356,6 @@ def visualizer_node(state: AgentState) -> dict[str, Any]:
             "chart_render_error": "No data to visualize",
         }
 
-    # Load DataFrame from Parquet
     parquet_path = result.get("parquet_path")
     if not parquet_path:
         return {
@@ -413,4 +388,3 @@ def visualizer_node(state: AgentState) -> dict[str, Any]:
         "chart_specs": chart_specs,
         "chart_render_error": None,
     }
-

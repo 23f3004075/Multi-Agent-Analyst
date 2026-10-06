@@ -1,25 +1,9 @@
 """
-LiteLLM Client Wrapper with Cost Tracking.
+Unified LLM Client.
 
-Abstracts Ollama (local SLM), OpenAI, and Anthropic behind a single
-interface. Tracks cost, latency, and token usage per invocation.
-
-Features:
-    - Automatic Tier 1 → fallback switching on latency threshold
-    - Per-invocation cost tracking via LiteLLM metadata
-    - Structured output support (JSON mode)
-    - Retry with exponential backoff on transient failures
-
-Usage:
-    from src.llm.client import LLMClient, LLMResponse
-
-    client = LLMClient(settings)
-    response = client.generate(
-        prompt="Generate SQL for: show total revenue",
-        system="You are a SQL expert.",
-        model_tier="tier1",
-    )
-    print(response.content, response.cost, response.latency_ms)
+Wraps OpenRouter (via OpenAI SDK) and LiteLLM fallback to provide
+reliable LLM calls across model tiers with multi-candidate fallbacks,
+reasoning token support, and automatic token/cost tracking.
 """
 
 from __future__ import annotations
@@ -36,7 +20,6 @@ from src.config import Settings
 
 logger = logging.getLogger(__name__)
 
-# Suppress litellm's verbose logging
 litellm.suppress_debug_info = True
 
 
@@ -46,7 +29,7 @@ class LLMResponse:
 
     content: str
     model_used: str
-    tier: str  # "tier1", "tier1_fallback", "tier2"
+    tier: str
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -70,7 +53,6 @@ class LLMClient:
         self._cumulative_cost: float = 0.0
         self._invocation_count: int = 0
 
-        # Initialize OpenRouter / OpenAI client if key is configured
         self._openrouter_client: Optional[OpenAI] = None
         openrouter_key = self._settings.effective_openrouter_key
         if openrouter_key:
@@ -97,10 +79,17 @@ class LLMClient:
 
         Supports single prompt/system or pre-assembled messages with reasoning_details.
         """
-        model = self._resolve_model(model_tier)
+        primary_model = self._resolve_model(model_tier)
+        fallback_model = self._resolve_fallback_model(model_tier)
+        pool_models = getattr(self._settings, "fallback_models_pool", [])
+
+        candidate_models: list[str] = []
+        for m in [primary_model, fallback_model] + pool_models:
+            if m and m not in candidate_models:
+                candidate_models.append(m)
+
         tier_label = model_tier
 
-        # Build messages if not provided
         if messages is not None:
             conv_messages = list(messages)
         else:
@@ -110,165 +99,184 @@ class LLMClient:
             if prompt:
                 conv_messages.append({"role": "user", "content": prompt})
 
-        # ── Pathway A: OpenRouter via OpenAI client ────────────────────
         if self._openrouter_client is not None:
-            max_attempts = 3
-            backoff = 1.0
-
             should_reason = self._settings.enable_reasoning if reasoning is None else reasoning
 
-            for attempt in range(1, max_attempts + 1):
-                start = time.perf_counter()
-                try:
-                    extra_body = {}
-                    if should_reason:
-                        extra_body["reasoning"] = {"enabled": True}
+            for model_candidate in candidate_models:
+                max_attempts = 2
+                backoff = 1.0
 
-                    api_kwargs: dict[str, Any] = {
-                        "model": model,
-                        "messages": conv_messages,
-                        "temperature": temperature,
-                        "max_tokens": max_tokens,
-                        "timeout": timeout,
-                    }
-                    if extra_body:
-                        api_kwargs["extra_body"] = extra_body
-                    if json_mode:
-                        api_kwargs["response_format"] = {"type": "json_object"}
+                for attempt in range(1, max_attempts + 1):
+                    start = time.perf_counter()
+                    try:
+                        extra_body = {}
+                        if should_reason:
+                            extra_body["reasoning"] = {"enabled": True}
 
-                    response = self._openrouter_client.chat.completions.create(**api_kwargs)
-                    elapsed_ms = (time.perf_counter() - start) * 1000
+                        api_kwargs: dict[str, Any] = {
+                            "model": model_candidate,
+                            "messages": conv_messages,
+                            "temperature": temperature,
+                            "max_tokens": max_tokens,
+                            "timeout": timeout,
+                        }
+                        if extra_body:
+                            api_kwargs["extra_body"] = extra_body
+                        if json_mode:
+                            api_kwargs["response_format"] = {"type": "json_object"}
 
-                    # Check for upstream provider errors returned in 200 payload
-                    if getattr(response, "error", None) or not getattr(response, "choices", None):
-                        err_payload = getattr(response, "error", {})
-                        raise RuntimeError(f"OpenRouter upstream error: {err_payload}")
+                        completion = self._openrouter_client.chat.completions.create(**api_kwargs)
+                        elapsed_ms = (time.perf_counter() - start) * 1000
 
-                    choice = response.choices[0]
-                    message = choice.message
-                    content = message.content or ""
-                    reasoning = getattr(message, "reasoning", None)
-                    reasoning_details = getattr(message, "reasoning_details", None)
+                        choice = completion.choices[0]
+                        message = choice.message
+                        content = message.content or ""
 
-                    usage = response.usage
-                    prompt_tokens = usage.prompt_tokens if usage else 0
-                    completion_tokens = usage.completion_tokens if usage else 0
-                    total_tokens = prompt_tokens + completion_tokens
-                    cost = float(getattr(usage, "cost", 0.0) or 0.0)
+                        if not content.strip() and hasattr(choice, "error") and choice.error:
+                            err_msg = str(choice.error)
+                            logger.warning(
+                                "OpenRouter provider payload error on %s: %s",
+                                model_candidate,
+                                err_msg,
+                            )
+                            raise RuntimeError(f"OpenRouter provider error: {err_msg}")
 
-                    self._cumulative_cost += cost
-                    self._invocation_count += 1
+                        reasoning_content = None
+                        if hasattr(message, "reasoning"):
+                            reasoning_content = message.reasoning
+                        elif hasattr(message, "reasoning_content"):
+                            reasoning_content = message.reasoning_content
 
-                    res = LLMResponse(
-                        content=content.strip(),
-                        model_used=model,
-                        tier=tier_label,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        total_tokens=total_tokens,
-                        cost_usd=cost,
-                        latency_ms=round(elapsed_ms, 1),
-                        raw_response=response,
-                        reasoning=reasoning,
-                        reasoning_details=reasoning_details,
-                    )
+                        reasoning_details = getattr(message, "reasoning_details", None)
 
-                    logger.info(
-                        "OpenRouter response: model=%s tokens=%d cost=$%.5f latency=%.0fms",
-                        res.model_used, res.total_tokens, res.cost_usd, res.latency_ms,
-                    )
-                    return res
+                        usage = completion.usage
+                        prompt_tokens = usage.prompt_tokens if usage else 0
+                        completion_tokens = usage.completion_tokens if usage else 0
+                        total_tokens = usage.total_tokens if usage else (prompt_tokens + completion_tokens)
 
-                except Exception as e:
-                    if attempt < max_attempts:
-                        logger.warning(
-                            "OpenRouter call failed (attempt %d/%d): %s. Retrying in %.1fs...",
-                            attempt, max_attempts, e, backoff
+                        cost = 0.0
+
+                        self._cumulative_cost += cost
+                        self._invocation_count += 1
+
+                        result = LLMResponse(
+                            content=content.strip(),
+                            model_used=model_candidate,
+                            tier=tier_label,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            total_tokens=total_tokens,
+                            cost_usd=cost,
+                            latency_ms=round(elapsed_ms, 1),
+                            raw_response=completion,
+                            reasoning=reasoning_content,
+                            reasoning_details=reasoning_details,
                         )
-                        time.sleep(backoff)
-                        backoff *= 2.0
-                    else:
-                        logger.warning("OpenRouter call failed after %d attempts: %s", max_attempts, e)
 
-        # ── Pathway B: LiteLLM fallback ────────────────────────────────
-        litellm_model = model
+                        logger.info(
+                            "OpenRouter direct response: model=%s tier=%s tokens=%d cost=$%.5f latency=%.0fms (reasoning=%s)",
+                            result.model_used,
+                            result.tier,
+                            result.total_tokens,
+                            result.cost_usd,
+                            result.latency_ms,
+                            bool(reasoning_content),
+                        )
+                        return result
+
+                    except Exception as e:
+                        err_str = str(e).lower()
+                        is_provider_failure = (
+                            "503" in err_str
+                            or "502" in err_str
+                            or "429" in err_str
+                            or "rate limit" in err_str
+                            or "overloaded" in err_str
+                            or "no available backend" in err_str
+                        )
+
+                        if is_provider_failure:
+                            logger.warning(
+                                "OpenRouter model %s is unavailable (%s). Immediate fallback to next candidate.",
+                                model_candidate,
+                                e,
+                            )
+                            break
+                        if attempt < max_attempts:
+                            logger.warning(
+                                "OpenRouter candidate %s attempt %d/%d failed: %s. Retrying in %.1fs...",
+                                model_candidate, attempt, max_attempts, e, backoff,
+                            )
+                            time.sleep(backoff)
+                            backoff *= 2.0
+                        else:
+                            logger.warning(
+                                "OpenRouter candidate %s failed after %d attempts: %s. Switching candidate...",
+                                model_candidate, max_attempts, e,
+                            )
+
         openrouter_key = self._settings.effective_openrouter_key
+        for litellm_candidate in candidate_models:
+            litellm_model = litellm_candidate
+            kwargs: dict[str, Any] = {
+                "messages": conv_messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "timeout": timeout,
+            }
 
-        kwargs: dict[str, Any] = {
-            "messages": conv_messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "timeout": timeout,
-        }
+            if openrouter_key and not litellm_model.startswith("ollama/") and not litellm_model.startswith("azure/"):
+                if not litellm_model.startswith("openrouter/"):
+                    litellm_model = f"openrouter/{litellm_model}"
+                kwargs["api_key"] = openrouter_key
+                kwargs["api_base"] = self._settings.openrouter_base_url
 
-        # If OpenRouter is configured and model isn't prefixed, route via openrouter/
-        if openrouter_key and not litellm_model.startswith("ollama/") and not litellm_model.startswith("azure/"):
-            if not litellm_model.startswith("openrouter/"):
-                litellm_model = f"openrouter/{litellm_model}"
-            kwargs["api_key"] = openrouter_key
-            kwargs["api_base"] = self._settings.openrouter_base_url
+            kwargs["model"] = litellm_model
+            if json_mode:
+                kwargs["response_format"] = {"type": "json_object"}
 
-        kwargs["model"] = litellm_model
-
-        if json_mode:
-            kwargs["response_format"] = {"type": "json_object"}
-
-        start = time.perf_counter()
-        try:
-            response = litellm.completion(**kwargs)
-        except litellm.exceptions.Timeout:
-            if model_tier == "tier1":
-                fallback_model = self._settings.tier1_fallback_model
-                if openrouter_key and not fallback_model.startswith("openrouter/"):
-                    fallback_model = f"openrouter/{fallback_model}"
-                logger.warning(
-                    "Tier 1 timeout (%.1fs) — falling back to %s",
-                    timeout,
-                    fallback_model,
-                )
-                kwargs["model"] = fallback_model
-                tier_label = "tier1_fallback"
-                start = time.perf_counter()
+            start = time.perf_counter()
+            try:
                 response = litellm.completion(**kwargs)
-            else:
-                raise
+                elapsed_ms = (time.perf_counter() - start) * 1000
 
-        elapsed_ms = (time.perf_counter() - start) * 1000
+                choice = response.choices[0]
+                content = choice.message.content or ""
+                usage = response.usage
+                prompt_tokens = usage.prompt_tokens if usage else 0
+                completion_tokens = usage.completion_tokens if usage else 0
+                total_tokens = prompt_tokens + completion_tokens
 
-        choice = response.choices[0]
-        content = choice.message.content or ""
+                cost = self._calculate_cost(response)
+                self._cumulative_cost += cost
+                self._invocation_count += 1
 
-        usage = response.usage
-        prompt_tokens = usage.prompt_tokens if usage else 0
-        completion_tokens = usage.completion_tokens if usage else 0
-        total_tokens = prompt_tokens + completion_tokens
+                result = LLMResponse(
+                    content=content.strip(),
+                    model_used=kwargs["model"],
+                    tier=tier_label,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    cost_usd=cost,
+                    latency_ms=round(elapsed_ms, 1),
+                    raw_response=response,
+                )
 
-        cost = self._calculate_cost(response)
-        self._cumulative_cost += cost
-        self._invocation_count += 1
+                logger.info(
+                    "LiteLLM response: model=%s tier=%s tokens=%d cost=$%.5f latency=%.0fms",
+                    result.model_used,
+                    result.tier,
+                    result.total_tokens,
+                    result.cost_usd,
+                    result.latency_ms,
+                )
+                return result
+            except Exception as e:
+                logger.warning("LiteLLM candidate %s failed: %s", litellm_candidate, e)
+                continue
 
-        result = LLMResponse(
-            content=content.strip(),
-            model_used=kwargs["model"],
-            tier=tier_label,
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
-            cost_usd=cost,
-            latency_ms=round(elapsed_ms, 1),
-            raw_response=response,
-        )
-
-        logger.info(
-            "LLM response: model=%s tier=%s tokens=%d cost=$%.5f latency=%.0fms",
-            result.model_used,
-            result.tier,
-            result.total_tokens,
-            result.cost_usd,
-            result.latency_ms,
-        )
-
-        return result
+        raise RuntimeError(f"All LLM candidates failed for tier {model_tier}: {candidate_models}")
 
     def _resolve_model(self, model_tier: str) -> str:
         """Resolve a tier name to a concrete model identifier."""
@@ -279,14 +287,20 @@ class LLMClient:
         elif model_tier == "tier1_fallback":
             return self._settings.tier1_fallback_model
         else:
-            # Treat as explicit model name
             return model_tier
+
+    def _resolve_fallback_model(self, model_tier: str) -> str:
+        """Resolve a tier name to a fallback model identifier."""
+        if model_tier == "tier1":
+            return self._settings.tier1_fallback_model
+        elif model_tier == "tier2":
+            return getattr(self._settings, "tier2_fallback_model", self._settings.tier1_fallback_model)
+        return ""
 
     @staticmethod
     def _calculate_cost(response: Any) -> float:
         """Extract cost from LiteLLM response metadata."""
         try:
-            # LiteLLM provides cost calculation via completion_cost
             cost = litellm.completion_cost(completion_response=response)
             return float(cost) if cost else 0.0
         except Exception:

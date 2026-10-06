@@ -38,7 +38,6 @@ from src.observability.log_store import (
 
 logger = logging.getLogger(__name__)
 
-# Base directories
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 WEB_DIR = BASE_DIR / "web"
 
@@ -48,7 +47,6 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS setup
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -69,7 +67,6 @@ async def add_no_cache_headers(request, call_next):
         response.headers["Expires"] = "0"
     return response
 
-# Compile graph once at server startup
 _compiled_graph = None
 
 
@@ -100,7 +97,6 @@ def prewarm_models():
     threading.Thread(target=_warmup, daemon=True).start()
 
 
-# Request / Response Schemas
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="Natural-language question")
     max_retries: int = Field(default=2, ge=0, le=5, description="Maximum self-healing retries")
@@ -110,13 +106,11 @@ def _strip_emojis(text: str) -> str:
     """Remove emojis from strings for strict no-emoji UI requirements."""
     if not text:
         return ""
-    # Remove emoji Unicode ranges
     emoji_pattern = re.compile(
         "[\U00010000-\U0010ffff\u2600-\u26ff\u2700-\u27bf\u2300-\u23ff\u2b50-\u2b55\u200d\ufe0f]",
         flags=re.UNICODE,
     )
     cleaned = emoji_pattern.sub("", text)
-    # Replace markdown warning symbols if any
     cleaned = cleaned.replace("⚠️", "[Warning]").replace("⛔", "[Blocked]").replace("📄", "[Report]")
     return cleaned.strip()
 
@@ -258,7 +252,6 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
             pass
         raise HTTPException(status_code=500, detail=f"Pipeline execution error: {e}")
 
-    # Process query results preview
     data_preview: list[dict[str, Any]] = []
     columns: list[str] = []
     row_count = 0
@@ -276,31 +269,25 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
             try:
                 df = pd.read_parquet(parquet_path)
                 columns = list(df.columns)
-                # Take up to 100 rows for UI table
                 preview_df = df.head(100)
                 data_preview = preview_df.to_dict(orient="records")
             except Exception as e:
                 logger.warning("Failed to read parquet preview: %s", e)
 
-    # Process chart spec and Plotly figures
     chart_specs = raw_state.get("chart_specs", [])
     chart_figure = None
     chart_spec = None
     if chart_specs and len(chart_specs) > 0:
-        # Default or first chart spec
         default_specs = [s for s in chart_specs if s.get("is_default")]
         chart_spec = default_specs[0] if default_specs else chart_specs[0]
         if isinstance(chart_spec, dict) and "plotly_figure" in chart_spec:
             chart_figure = chart_spec.get("plotly_figure")
 
-    # Format response without emojis
     raw_response = raw_state.get("final_response", "")
     clean_response = _strip_emojis(raw_response)
 
-    # Clean error history
     error_history = [_strip_emojis(err) for err in raw_state.get("error_history", [])]
 
-    # Clean report paths
     raw_reports = raw_state.get("report_paths", {})
     report_links = {}
     if isinstance(raw_reports, dict):
@@ -310,7 +297,6 @@ def execute_query(req: QueryRequest) -> dict[str, Any]:
                 if fmt == "pdf":
                     report_links["pdf_inline"] = f"/api/download?path={path}&inline=true"
 
-    # Record in telemetry log store
     guardrail_ok = raw_state.get("guardrail_passed", True)
     has_exec_err = bool(raw_state.get("execution_error"))
     log_status = "BLOCKED" if not guardrail_ok else ("FAILED" if has_exec_err else "SUCCESS")
@@ -409,7 +395,6 @@ def execute_query_stream(req: QueryRequest):
                 "message": "Validating question against security filters and schema...",
             })
 
-            # Stream through LangGraph nodes
             for step_event in graph.stream(initial_state, stream_mode="updates"):
                 node_name = list(step_event.keys())[0] if step_event else ""
                 node_output = step_event.get(node_name, {})
@@ -417,7 +402,6 @@ def execute_query_stream(req: QueryRequest):
 
                 logger.info("Stream progress node: %s", node_name)
 
-                # ── Guardrail check ──────────────────────────────────
                 if node_name == "guardrail":
                     if not node_output.get("guardrail_passed", True):
                         event_queue.put({
@@ -426,7 +410,6 @@ def execute_query_stream(req: QueryRequest):
                         })
                         break
 
-                # ── Terminal reject ──────────────────────────────────
                 elif node_name == "terminal_reject":
                     event_queue.put({
                         "event": "guardrail_rejected",
@@ -434,7 +417,6 @@ def execute_query_stream(req: QueryRequest):
                     })
                     break
 
-                # ── SQL Generation & AST Validation ──────────────────
                 elif node_name in ("generate_sql", "validate_ast"):
                     sql = accumulated_state.get("generated_sql")
                     if sql:
@@ -451,7 +433,6 @@ def execute_query_stream(req: QueryRequest):
                             },
                         })
 
-                # ── SQL Execution -> Data Preview ────────────────────
                 elif node_name == "execute_sql":
                     exec_err = node_output.get("execution_error")
                     if exec_err:
@@ -492,7 +473,6 @@ def execute_query_stream(req: QueryRequest):
                             },
                         })
 
-                # ── Visualization -> Multi-chart Options ─────────────
                 elif node_name == "generate_visuals":
                     chart_specs = node_output.get("chart_specs", [])
                     default_spec = None
@@ -513,7 +493,6 @@ def execute_query_stream(req: QueryRequest):
                         },
                     })
 
-                # ── Analysis -> Executive Summary ────────────────────
                 elif node_name == "analyze_data":
                     analysis = node_output.get("analysis") or {}
                     summary = analysis.get("summary", "")
@@ -533,7 +512,6 @@ def execute_query_stream(req: QueryRequest):
                         },
                     })
 
-                # ── Report Generation -> Export Reports ──────────────
                 elif node_name == "compile_reports":
                     r_paths = node_output.get("report_paths") or {}
                     rep_links = {}
@@ -553,7 +531,6 @@ def execute_query_stream(req: QueryRequest):
                         },
                     })
 
-                # ── Final Response ───────────────────────────────────
                 elif node_name == "format_response":
                     clean_resp = _strip_emojis(node_output.get("final_response", ""))
                     event_queue.put({
@@ -563,7 +540,6 @@ def execute_query_stream(req: QueryRequest):
 
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
-            # Record in telemetry log store
             guardrail_ok = accumulated_state.get("guardrail_passed", True)
             has_err = bool(accumulated_state.get("execution_error"))
             log_status = "BLOCKED" if not guardrail_ok else ("FAILED" if has_err else "SUCCESS")
@@ -635,7 +611,6 @@ def execute_query_stream(req: QueryRequest):
         finally:
             event_queue.put(None)  # Sentinel to close stream
 
-    # Launch worker thread
     threading.Thread(target=run_worker, daemon=True).start()
 
     def event_generator():
@@ -665,7 +640,6 @@ def download_report(
     """Download or preview generated PDF / Excel report."""
     file_path = Path(path).resolve()
 
-    # Safety check: Ensure path exists
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="Requested file not found.")
 
@@ -674,7 +648,6 @@ def download_report(
     media_type = "application/pdf" if is_pdf else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
     if inline and is_pdf:
-        # Serve inline so browser can display inside iframe / preview loader
         return FileResponse(
             path=str(file_path),
             media_type=media_type,
@@ -725,7 +698,6 @@ def export_logs() -> Response:
     )
 
 
-# Mount static directory for HTML UI
 if not WEB_DIR.exists():
     WEB_DIR.mkdir(parents=True, exist_ok=True)
 

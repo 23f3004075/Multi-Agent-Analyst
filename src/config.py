@@ -22,10 +22,6 @@ from typing import Optional
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
-# ─────────────────────────────────────────────────────────────────────
-# Project root — resolved relative to this file's location
-# ─────────────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -53,11 +49,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # ── Application ──────────────────────────────────────────────────
     environment: Environment = Environment.DEVELOPMENT
     log_level: str = "INFO"
 
-    # ── LLM Provider API Keys ────────────────────────────────────────
     api_key: Optional[str] = Field(default=None, repr=False)
     openrouter_api_key: Optional[str] = Field(default=None, repr=False)
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -66,14 +60,17 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None, repr=False)
     gemini_api_key: Optional[str] = Field(default=None, repr=False)
 
-    # ── Tier 1: SLM ─────────────────────────────────────────────────
     tier1_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
-    tier1_fallback_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+    tier1_fallback_model: str = "nvidia/nemotron-3.5-lightning:free"
     tier1_max_latency_ms: int = 15000
     ollama_api_base: str = "http://localhost:11434"
 
-    # ── Tier 2: Frontier LLM ────────────────────────────────────────
     tier2_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+    tier2_fallback_model: str = "nvidia/nemotron-3.5-lightning:free"
+    fallback_models_pool: list[str] = [
+        "nvidia/nemotron-3.5-lightning:free",
+        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    ]
 
     @property
     def effective_openrouter_key(self) -> Optional[str]:
@@ -85,40 +82,31 @@ class Settings(BaseSettings):
             or os.getenv("API_KEY")
         )
 
-    # ── Database ─────────────────────────────────────────────────────
     database_path: Path = Field(default=PROJECT_ROOT / "data" / "analytics.duckdb")
     db_memory_limit: str = "512MB"
     db_max_threads: int = 2
     db_query_timeout_seconds: float = 5.0
-    db_max_result_rows: int = 5001  # Fetch N+1 to detect truncation
+    db_max_result_rows: int = 5001
 
-    # ── Router ───────────────────────────────────────────────────────
     router_confidence_threshold: float = 0.65
-    schema_linker_top_k: int = 3
+    schema_linker_top_k: int = 5
     embedding_model: str = "all-MiniLM-L6-v2"
 
-    # ── Self-Healing ─────────────────────────────────────────────────
     max_retries: int = 2
 
-    # ── Guardrails ───────────────────────────────────────────────────
     nemo_config_path: Path = Field(
         default=PROJECT_ROOT / "src" / "guardrails" / "nemo_config"
     )
 
-    # ── Reports & Outputs ────────────────────────────────────────────
     report_output_dir: Path = Field(default=PROJECT_ROOT / "outputs" / "reports")
     chart_output_dir: Path = Field(default=PROJECT_ROOT / "outputs" / "charts")
 
-    # ── Cache ────────────────────────────────────────────────────────
     redis_url: str = "redis://localhost:6379/0"
     semantic_cache_similarity_threshold: float = 0.92
 
-    # ── Observability ────────────────────────────────────────────────
     langfuse_public_key: Optional[str] = Field(default=None, repr=False)
     langfuse_secret_key: Optional[str] = Field(default=None, repr=False)
     langfuse_host: str = "https://cloud.langfuse.com"
-
-    # ── Validators ───────────────────────────────────────────────────
 
     @field_validator("db_query_timeout_seconds")
     @classmethod
@@ -147,8 +135,6 @@ class Settings(BaseSettings):
         if v < 0.5 or v > 1.0:
             raise ValueError("Cache similarity threshold must be between 0.5 and 1.0")
         return v
-
-    # ── Helpers ──────────────────────────────────────────────────────
 
     def ensure_output_dirs(self) -> None:
         """Create output directories if they don't exist."""
@@ -184,7 +170,6 @@ def get_settings() -> Settings:
     """
     settings = Settings()
 
-    # Push API keys into environment for LiteLLM auto-discovery
     for key, value in settings.get_litellm_env().items():
         os.environ.setdefault(key, value)
 

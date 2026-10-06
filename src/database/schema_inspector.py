@@ -42,7 +42,7 @@ class ColumnInfo:
     sample_values: list[Any] = field(default_factory=list)
     distinct_count: int = 0
     null_percentage: float = 0.0
-    description: str = ""  # Populated by semantic layer
+    description: str = ""
 
     def to_ddl_fragment(self) -> str:
         """Format as a DDL column definition."""
@@ -71,7 +71,7 @@ class TableInfo:
     name: str
     columns: list[ColumnInfo]
     row_count: int
-    description: str = ""  # Populated by semantic layer
+    description: str = ""
 
     @property
     def column_names(self) -> list[str]:
@@ -145,7 +145,6 @@ class SchemaInspector:
         if table_name in self._cache:
             return self._cache[table_name]
 
-        # Get column metadata
         columns_raw = self._conn.execute(f"""
             SELECT
                 column_name,
@@ -160,15 +159,12 @@ class SchemaInspector:
         if not columns_raw:
             raise ValueError(f"Table '{table_name}' not found in schema")
 
-        # Get primary key columns
         pk_columns = self._get_primary_keys(table_name)
 
-        # Get row count
         row_count = self._conn.execute(
             f"SELECT COUNT(*) FROM {table_name}"
         ).fetchone()[0]
 
-        # Build column info with sample values
         columns = []
         for col_name, data_type, is_nullable in columns_raw:
             sample_values = self._get_sample_values(table_name, col_name)
@@ -236,12 +232,9 @@ class SchemaInspector:
             for table in self.get_all_tables()
         }
 
-    # ── Private helpers ──────────────────────────────────────────────
-
     def _get_primary_keys(self, table_name: str) -> set[str]:
         """Extract primary key column names for a table."""
         try:
-            # DuckDB-specific: query constraint info
             result = self._conn.execute(f"""
                 SELECT column_name
                 FROM duckdb_constraints()

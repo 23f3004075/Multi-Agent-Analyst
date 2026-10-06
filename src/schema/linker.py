@@ -20,7 +20,6 @@ Usage:
 
     linker = SchemaLinker(settings, schema_inspector)
     linked = linker.link("What is total revenue by product category?")
-    # Returns: ["order_items", "products", "product_category"]
 """
 
 from __future__ import annotations
@@ -61,7 +60,7 @@ class SchemaLinker:
                          If None, must call build_index() before linking.
         """
         self._settings = settings
-        self._model = None  # Lazy-loaded
+        self._model = None
         self._table_names: list[str] = []
         self._table_embeddings: NDArray | None = None
         self._cache_dir = (
@@ -106,7 +105,6 @@ class SchemaLinker:
         )
         logger.info("Table embeddings built: shape %s", self._table_embeddings.shape)
 
-        # Cache for future startup speed
         self._save_cache()
 
     def link(
@@ -136,20 +134,15 @@ class SchemaLinker:
         model = self._load_model()
         k = top_k or self._settings.schema_linker_top_k
 
-        # Embed the query
         query_embedding = model.encode(
             [query],
             normalize_embeddings=True,
             show_progress_bar=False,
         )
 
-        # Cosine similarity (embeddings are pre-normalized)
         similarities = np.dot(self._table_embeddings, query_embedding.T).flatten()
-
-        # Get top-k indices
         top_indices = np.argsort(similarities)[::-1][:k]
 
-        # Filter by threshold
         results = []
         for idx in top_indices:
             score = float(similarities[idx])
@@ -159,7 +152,6 @@ class SchemaLinker:
                     "  Linked: %s (score=%.3f)", self._table_names[idx], score
                 )
 
-        # If nothing passes threshold, return top result anyway
         if not results and len(self._table_names) > 0:
             best_idx = int(top_indices[0])
             results.append(self._table_names[best_idx])
@@ -170,33 +162,36 @@ class SchemaLinker:
                 float(similarities[best_idx]),
             )
 
-        logger.info("Schema link: '%s' → %s", query[:80], results)
+        logger.info(
+            "Schema linker for '%s' → %s (top-%d, threshold=%.2f)",
+            query[:60],
+            results,
+            k,
+            threshold,
+        )
+
         return results
 
-    def link_with_scores(
-        self,
-        query: str,
-        top_k: int | None = None,
+    def get_similarities(
+        self, query: str, top_k: int = 5
     ) -> list[tuple[str, float]]:
         """
-        Link with similarity scores for debugging/display.
+        Get table names with their raw similarity scores.
 
-        Returns:
-            List of (table_name, similarity_score) tuples.
+        Useful for debugging and testing.
         """
         if self._table_embeddings is None:
             if not self._load_cache():
-                raise RuntimeError("Schema linker index not built.")
+                return []
 
         model = self._load_model()
-        k = top_k or self._settings.schema_linker_top_k
-
         query_embedding = model.encode(
             [query],
             normalize_embeddings=True,
             show_progress_bar=False,
         )
 
+        k = min(top_k, len(self._table_names))
         similarities = np.dot(self._table_embeddings, query_embedding.T).flatten()
         top_indices = np.argsort(similarities)[::-1][:k]
 
@@ -204,8 +199,6 @@ class SchemaLinker:
             (self._table_names[int(idx)], float(similarities[int(idx)]))
             for idx in top_indices
         ]
-
-    # ── Cache management ─────────────────────────────────────────────
 
     def _save_cache(self) -> None:
         """Persist embeddings to disk for faster startup."""
