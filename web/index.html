@@ -21,7 +21,7 @@
   <link rel="stylesheet" href="style.css?v=2.2">
 </head>
 <body>
-  <div id="app">
+  <div id="app" v-cloak>
     <div v-if="authChecking" class="d-flex align-items-center justify-content-center vh-100 bg-dark text-light">
       <div class="text-center">
         <div class="spinner-border text-info mb-3" role="status"></div>
@@ -34,7 +34,7 @@
         <div class="text-center mb-4">
           <span class="auth-brand-badge">Enterprise SQL Agent</span>
           <h4 class="fw-bold mb-1">Autonomous Analytics</h4>
-          <p class="text-muted small mb-0">Sign in to start your analytical workspace session</p>
+          <p class="text-muted small mb-0">Dual-tier NL-to-SQL engine with self-healing synthesis</p>
         </div>
 
         <div class="auth-tabs">
@@ -60,31 +60,28 @@
           {{ authError }}
         </div>
 
-        <form @submit.prevent="authMode === 'login' ? handleLogin() : handleRegister()">
+        <!-- SIGN IN FORM -->
+        <form v-if="authMode === 'login'" @submit.prevent="handleLogin">
           <div class="mb-3">
-            <label class="form-label small text-muted">Username</label>
+            <div class="auth-field-label">
+              <span>Email or Username</span>
+              <span class="auth-field-hint">e.g. admin@enterprise.ai</span>
+            </div>
             <input
               type="text"
-              v-model="authForm.username"
+              v-model="authForm.loginId"
               class="form-control auth-input"
-              placeholder="e.g. admin or analyst"
+              placeholder="Enter your email or username"
               required
               autofocus
             />
           </div>
 
-          <div v-if="authMode === 'register'" class="mb-3">
-            <label class="form-label small text-muted">Display Name</label>
-            <input
-              type="text"
-              v-model="authForm.displayName"
-              class="form-control auth-input"
-              placeholder="e.g. Jane Doe"
-            />
-          </div>
-
           <div class="mb-4">
-            <label class="form-label small text-muted">Password</label>
+            <div class="auth-field-label">
+              <span>Password</span>
+              <span class="auth-field-hint">Default: admin123 / demo123</span>
+            </div>
             <input
               type="password"
               v-model="authForm.password"
@@ -100,32 +97,91 @@
             :disabled="authLoading"
           >
             <span v-if="authLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
-            {{ authMode === 'login' ? 'Sign In to Workspace' : 'Create Account & Sign In' }}
+            Sign In to Workspace
+          </button>
+        </form>
+
+        <!-- CREATE ACCOUNT FORM -->
+        <form v-else @submit.prevent="handleRegister">
+          <div class="mb-3">
+            <div class="auth-field-label">
+              <span>Full Name ("Name")</span>
+              <span class="auth-field-hint">First & Last Name</span>
+            </div>
+            <input
+              type="text"
+              v-model="authForm.name"
+              class="form-control auth-input"
+              placeholder="e.g. Sourasish Paul"
+              required
+              autofocus
+            />
+          </div>
+
+          <div class="mb-3">
+            <div class="auth-field-label">
+              <span>Email Address ("Email")</span>
+              <span class="auth-field-hint">Used for sign-in & sessions</span>
+            </div>
+            <input
+              type="email"
+              v-model="authForm.email"
+              class="form-control auth-input"
+              placeholder="e.g. sourasish@enterprise.ai"
+              required
+            />
+          </div>
+
+          <div class="mb-4">
+            <div class="auth-field-label">
+              <span>Password</span>
+              <span class="auth-field-hint">At least 4 characters</span>
+            </div>
+            <input
+              type="password"
+              v-model="authForm.password"
+              class="form-control auth-input"
+              placeholder="••••••••"
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            class="btn btn-primary w-100 fw-semibold py-2"
+            :disabled="authLoading"
+          >
+            <span v-if="authLoading" class="spinner-border spinner-border-sm me-2" role="status"></span>
+            Create Account & Sign In
           </button>
         </form>
 
         <div class="auth-demo-box">
-          <div class="small fw-semibold text-muted mb-2">Quick Demo Access:</div>
+          <div class="small fw-semibold text-muted mb-2">Instant Demo Access:</div>
           <div class="d-flex gap-2">
-            <button
-              type="button"
-              class="btn btn-sm btn-outline-light w-50"
+            <div
+              class="demo-account-card w-50"
               @click="quickDemoLogin('admin')"
-              :disabled="authLoading"
+              title="Click to log in as Admin"
             >
-              Admin Demo
-            </button>
-            <button
-              type="button"
-              class="btn btn-sm btn-outline-light w-50"
+              <div class="fw-semibold text-info small">Admin Account</div>
+              <div class="text-light small">Name: Admin Analyst</div>
+              <div class="text-muted" style="font-size: 0.72rem;">Email: admin@enterprise.ai</div>
+              <div class="text-muted" style="font-size: 0.72rem;">Password: admin123</div>
+            </div>
+            <div
+              class="demo-account-card w-50"
               @click="quickDemoLogin('demo')"
-              :disabled="authLoading"
+              title="Click to log in as Demo Analyst"
             >
-              Analyst Demo
-            </button>
+              <div class="fw-semibold text-info small">Analyst Demo</div>
+              <div class="text-light small">Name: Demo User</div>
+              <div class="text-muted" style="font-size: 0.72rem;">Email: demo@enterprise.ai</div>
+              <div class="text-muted" style="font-size: 0.72rem;">Password: demo123</div>
+            </div>
           </div>
           <div class="text-muted text-center mt-2" style="font-size: 0.72rem;">
-            Default accounts: <code>admin / admin123</code> or <code>demo / demo123</code>
+            Click any account card above to autofill & sign in immediately.
           </div>
         </div>
       </div>
@@ -139,6 +195,34 @@
             <span class="badge bg-secondary ms-3 system-badge">Production BI Engine</span>
           </a>
           <div class="d-flex align-items-center gap-3">
+            <div class="dataset-switcher" title="Toggle active database context">
+              <button
+                type="button"
+                class="dataset-pill"
+                :class="{ active: datasetMode === 'demo' }"
+                @click="setDatasetMode('demo')"
+              >
+                Demo Data (Olist)
+              </button>
+              <button
+                type="button"
+                class="dataset-pill"
+                :class="{ active: datasetMode === 'user' }"
+                @click="setDatasetMode('user')"
+              >
+                My Uploaded Data ({{ userTables.length }})
+              </button>
+            </div>
+
+            <button
+              type="button"
+              class="btn btn-xs btn-outline-info"
+              @click="showUploadModal = true; uploadError = null; uploadSuccessMsg = null"
+              title="Upload custom CSV, Excel, or Parquet datasets"
+            >
+              Upload Dataset
+            </button>
+
             <button
               type="button"
               class="telemetry-nav-btn d-flex align-items-center gap-2"
@@ -159,15 +243,9 @@
               <span>Sessions: <strong>{{ userHistory.length }} Saved</strong></span>
             </button>
 
-            <div class="d-flex align-items-center">
-              <span class="status-dot" :class="health.status === 'healthy' ? 'status-dot-active' : 'status-dot-error'"></span>
-              <span class="text-light small">
-                Database: {{ health.status === 'healthy' ? health.table_count + ' Tables Active' : 'Disconnected' }}
-              </span>
-            </div>
-
-            <div class="user-nav-chip ms-2">
+            <div class="user-nav-chip ms-2" :title="currentUser.email ? 'Logged in as ' + currentUser.email : ''">
               <span class="fw-semibold">{{ currentUser.display_name || currentUser.username }}</span>
+              <span v-if="currentUser.email" class="user-email-chip">({{ currentUser.email }})</span>
               <span class="session-indicator-badge" title="Active Session ID">#{{ sessionId }}</span>
               <button
                 type="button"
@@ -1007,6 +1085,80 @@
               </tr>
             </tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Upload Dataset Modal -->
+    <div v-if="showUploadModal" class="upload-modal-overlay" @click.self="showUploadModal = false">
+      <div class="upload-modal-card">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <h5 class="fw-bold mb-0">Upload Personal Dataset</h5>
+          <button type="button" class="btn-close btn-close-white" @click="showUploadModal = false"></button>
+        </div>
+        <p class="text-muted small mb-3">
+          Upload your own CSV, Excel (.xlsx), or Parquet files. They are automatically ingested into your isolated, private DuckDB database.
+        </p>
+
+        <div v-if="uploadError" class="alert alert-danger py-2 px-3 small mb-3">
+          {{ uploadError }}
+        </div>
+        <div v-if="uploadSuccessMsg" class="alert alert-success py-2 px-3 small mb-3">
+          {{ uploadSuccessMsg }}
+        </div>
+
+        <form @submit.prevent="submitDatasetUpload">
+          <div class="mb-3">
+            <label class="form-label small text-muted">Select File (.csv, .xlsx, .parquet)</label>
+            <input
+              type="file"
+              accept=".csv,.tsv,.xlsx,.xls,.parquet"
+              class="form-control auth-input"
+              @change="handleFileSelect"
+              required
+            />
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label small text-muted">Table Name (Optional)</label>
+            <input
+              type="text"
+              v-model="uploadCustomTableName"
+              class="form-control auth-input"
+              placeholder="e.g. sales_2024 or custom_orders"
+            />
+            <div class="form-text text-muted small">Auto-generated from filename if left blank.</div>
+          </div>
+
+          <div class="d-flex justify-content-end gap-2 mt-4">
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="showUploadModal = false">
+              Cancel
+            </button>
+            <button type="submit" class="btn btn-sm btn-primary px-3" :disabled="uploadLoading || !uploadFileObj">
+              <span v-if="uploadLoading" class="spinner-border spinner-border-sm me-1" role="status"></span>
+              {{ uploadLoading ? 'Importing Dataset...' : 'Import Dataset' }}
+            </button>
+          </div>
+        </form>
+
+        <div v-if="userTables && userTables.length" class="mt-4 pt-3 border-top border-secondary">
+          <div class="small fw-semibold text-muted mb-2">Your Uploaded Tables ({{ userTables.length }}):</div>
+          <div class="d-flex flex-wrap gap-2">
+            <span
+              v-for="tbl in userTables"
+              :key="tbl.name"
+              class="badge bg-dark border border-secondary p-2 d-flex align-items-center gap-2"
+            >
+              <span>{{ tbl.name }} ({{ (tbl.row_count || 0).toLocaleString() }} rows)</span>
+              <button
+                type="button"
+                class="btn-close btn-close-white"
+                style="font-size: 0.5rem;"
+                title="Delete Table"
+                @click="deleteTable(tbl.name)"
+              ></button>
+            </span>
+          </div>
         </div>
       </div>
     </div>

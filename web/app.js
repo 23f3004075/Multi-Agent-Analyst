@@ -89,15 +89,27 @@ createApp({
       authChecking: true,
       authMode: "login",
       authForm: {
+        loginId: "",
         username: "",
-        password: "",
-        displayName: ""
+        email: "",
+        name: "",
+        displayName: "",
+        password: ""
       },
       authError: null,
       authLoading: false,
       sessionId: localStorage.getItem("agent_session_id") || ("sess_" + Math.random().toString(36).substring(2, 9)),
       userHistory: [],
-      historyLoading: false
+      historyLoading: false,
+
+      datasetMode: localStorage.getItem("agent_dataset_mode") || "demo",
+      userTables: [],
+      showUploadModal: false,
+      uploadFileObj: null,
+      uploadCustomTableName: "",
+      uploadLoading: false,
+      uploadError: null,
+      uploadSuccessMsg: null
     };
   },
 
@@ -155,8 +167,11 @@ createApp({
 
     async fetchTableCatalog() {
       try {
-        const res = await fetch("/api/tables/preview");
-        if (res.ok) {
+        const headers = {};
+        if (this.authToken) headers["Authorization"] = "Bearer " + this.authToken;
+        const res = await fetch(`/api/tables/preview?dataset_mode=${this.datasetMode}`, { headers });
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
           const data = await res.json();
           this.tablesCatalog = data.tables || [];
         }
@@ -311,7 +326,8 @@ createApp({
           body: JSON.stringify({
             query: trimmed,
             max_retries: parseInt(this.maxRetries) || 2,
-            session_id: this.sessionId
+            session_id: this.sessionId,
+            dataset_mode: this.datasetMode
           })
         });
 
@@ -474,7 +490,8 @@ createApp({
           body: JSON.stringify({
             query: queryText,
             max_retries: parseInt(this.maxRetries) || 2,
-            session_id: this.sessionId
+            session_id: this.sessionId,
+            dataset_mode: this.datasetMode
           })
         });
         if (!response.ok) {
@@ -608,14 +625,17 @@ createApp({
         this.authChecking = false;
         return;
       }
+      this.authChecking = true;
       try {
         const res = await fetch("/api/auth/me", {
           headers: { "Authorization": "Bearer " + this.authToken }
         });
-        if (res.ok) {
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
           const user = await res.json();
           this.currentUser = user;
           this.fetchUserHistory();
+          this.fetchUserTables();
         } else {
           this.authToken = "";
           this.currentUser = null;
@@ -623,6 +643,9 @@ createApp({
         }
       } catch (err) {
         console.warn("Auth check error:", err);
+        this.authToken = "";
+        this.currentUser = null;
+        localStorage.removeItem("agent_auth_token");
       } finally {
         this.authChecking = false;
       }
@@ -630,8 +653,9 @@ createApp({
 
     async handleLogin() {
       this.authError = null;
-      if (!this.authForm.username || !this.authForm.password) {
-        this.authError = "Please enter both username and password.";
+      const ident = (this.authForm.loginId || this.authForm.email || this.authForm.username || "").trim();
+      if (!ident || !this.authForm.password) {
+        this.authError = "Please enter your Email or Username, and Password.";
         return;
       }
       this.authLoading = true;
@@ -640,10 +664,15 @@ createApp({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            username: this.authForm.username,
+            identifier: ident,
+            username: ident,
             password: this.authForm.password
           })
         });
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error("Login service currently unreachable. Please verify server connection.");
+        }
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data.detail || "Invalid login credentials.");
@@ -653,6 +682,8 @@ createApp({
         localStorage.setItem("agent_auth_token", data.token);
         this.authForm.password = "";
         this.fetchUserHistory();
+        this.fetchUserTables();
+        this.fetchTableCatalog();
       } catch (err) {
         this.authError = err.message || "Failed to log in.";
       } finally {
@@ -662,8 +693,18 @@ createApp({
 
     async handleRegister() {
       this.authError = null;
-      if (!this.authForm.username || !this.authForm.password) {
-        this.authError = "Please enter username and password.";
+      const fullName = (this.authForm.name || this.authForm.displayName || "").trim();
+      const email = (this.authForm.email || "").trim();
+      if (!fullName) {
+        this.authError = "Please enter your Full Name.";
+        return;
+      }
+      if (!email || !email.includes("@")) {
+        this.authError = "Please enter a valid Email address.";
+        return;
+      }
+      if (!this.authForm.password || this.authForm.password.length < 4) {
+        this.authError = "Password must be at least 4 characters long.";
         return;
       }
       this.authLoading = true;
@@ -672,11 +713,16 @@ createApp({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            username: this.authForm.username,
+            name: fullName,
+            email: email,
             password: this.authForm.password,
-            display_name: this.authForm.displayName || this.authForm.username
+            username: this.authForm.username || email.split("@")[0]
           })
         });
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error("Registration service currently unreachable.");
+        }
         const data = await res.json();
         if (!res.ok) {
           throw new Error(data.detail || "Registration failed.");
@@ -686,6 +732,8 @@ createApp({
         localStorage.setItem("agent_auth_token", data.token);
         this.authForm.password = "";
         this.fetchUserHistory();
+        this.fetchUserTables();
+        this.fetchTableCatalog();
       } catch (err) {
         this.authError = err.message || "Failed to register account.";
       } finally {
@@ -712,13 +760,107 @@ createApp({
 
     quickDemoLogin(role) {
       if (role === "admin") {
-        this.authForm.username = "admin";
+        this.authForm.loginId = "admin@enterprise.ai";
         this.authForm.password = "admin123";
       } else {
-        this.authForm.username = "demo";
+        this.authForm.loginId = "demo@enterprise.ai";
         this.authForm.password = "demo123";
       }
       this.handleLogin();
+    },
+
+    setDatasetMode(mode) {
+      this.datasetMode = mode;
+      localStorage.setItem("agent_dataset_mode", mode);
+      this.fetchTableCatalog();
+    },
+
+    async fetchUserTables() {
+      if (!this.authToken) return;
+      try {
+        const res = await fetch("/api/user/tables", {
+          headers: { "Authorization": "Bearer " + this.authToken }
+        });
+        const contentType = res.headers.get("content-type") || "";
+        if (res.ok && contentType.includes("application/json")) {
+          const data = await res.json();
+          this.userTables = data.tables || [];
+        }
+      } catch (e) {
+        console.warn("Failed fetching user tables:", e);
+      }
+    },
+
+    handleFileSelect(e) {
+      const files = e.target.files;
+      if (files && files.length) {
+        this.uploadFileObj = files[0];
+        if (!this.uploadCustomTableName) {
+          const nameWithoutExt = files[0].name.replace(/\.[^/.]+$/, "");
+          this.uploadCustomTableName = nameWithoutExt.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase();
+        }
+      }
+    },
+
+    async submitDatasetUpload() {
+      if (!this.uploadFileObj) {
+        this.uploadError = "Please select a dataset file (.csv, .xlsx, or .parquet).";
+        return;
+      }
+      this.uploadLoading = true;
+      this.uploadError = null;
+      this.uploadSuccessMsg = null;
+
+      const formData = new FormData();
+      formData.append("file", this.uploadFileObj);
+      if (this.uploadCustomTableName) {
+        formData.append("table_name", this.uploadCustomTableName);
+      }
+
+      try {
+        const res = await fetch("/api/upload", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + this.authToken },
+          body: formData
+        });
+        const contentType = res.headers.get("content-type") || "";
+        if (!contentType.includes("application/json")) {
+          throw new Error("Upload endpoint returned an unexpected response.");
+        }
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.detail || "Failed to upload dataset.");
+        }
+        this.uploadSuccessMsg = `Table '${data.dataset.table_name}' (${data.dataset.row_count.toLocaleString()} rows) imported successfully!`;
+        this.uploadFileObj = null;
+        this.uploadCustomTableName = "";
+        await this.fetchUserTables();
+        this.setDatasetMode("user");
+        setTimeout(() => {
+          this.showUploadModal = false;
+          this.uploadSuccessMsg = null;
+        }, 1200);
+      } catch (err) {
+        this.uploadError = err.message || "Failed to process upload.";
+      } finally {
+        this.uploadLoading = false;
+      }
+    },
+
+    async deleteTable(tblName) {
+      if (!confirm(`Are you sure you want to delete table '${tblName}'?`)) return;
+      try {
+        const res = await fetch(`/api/user/tables/${tblName}`, {
+          method: "DELETE",
+          headers: { "Authorization": "Bearer " + this.authToken }
+        });
+        if (res.ok) {
+          await this.fetchUserTables();
+          await this.fetchTableCatalog();
+        }
+      } catch (e) {
+        console.warn("Failed deleting table:", e);
+      }
     },
 
     startNewSession() {

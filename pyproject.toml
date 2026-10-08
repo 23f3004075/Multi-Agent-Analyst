@@ -46,6 +46,7 @@ dependencies = [
     "python-dotenv>=1.0",
     "rich>=13",
     "reportlab>=5.0.1",
+    "openpyxl>=3.1.5",
 ]
 
 [project.optional-dependencies]

@@ -35,7 +35,7 @@ def execution_node(state: AgentState) -> dict[str, Any]:
     settings = get_settings()
 
     try:
-        conn = create_secure_connection(settings)
+        conn = create_secure_connection(settings, db_path=state.get("db_path"))
         try:
             result = executor.execute(sql, conn=conn)
 

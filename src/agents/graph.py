@@ -180,6 +180,7 @@ def run_query(
     user_query: str,
     compiled_graph=None,
     max_retries: int = 2,
+    db_path: Optional[str] = None,
 ) -> dict[str, Any]:
     if compiled_graph is None:
         compiled_graph = compile_graph()
@@ -191,6 +192,8 @@ def run_query(
         "error_history": [],
         "total_cost_usd": 0.0,
     }
+    if db_path:
+        initial_state["db_path"] = db_path
 
     start = time.perf_counter()
     result = compiled_graph.invoke(initial_state)

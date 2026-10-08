@@ -9,13 +9,19 @@ from typing import Any, Optional
 
 import duckdb
 import pandas as pd
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from src.agents.graph import compile_graph, run_query
+from src.database.uploader import (
+    delete_user_table,
+    get_user_db_path,
+    import_dataset,
+    list_user_tables,
+)
 from src.auth.store import (
     authenticate_user,
     clear_user_history,
@@ -100,12 +106,22 @@ class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=2000, description="Natural-language question")
     max_retries: int = Field(default=2, ge=0, le=5, description="Maximum self-healing retries")
     session_id: Optional[str] = Field(default=None, description="Client session identifier")
+    dataset_mode: Optional[str] = Field(default="demo", description="'demo' or 'user'")
 
 
-class AuthRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=64)
+class LoginRequest(BaseModel):
+    identifier: Optional[str] = Field(default=None, description="Email or Username")
+    username: Optional[str] = None
+    email: Optional[str] = None
     password: str = Field(..., min_length=1, max_length=128)
-    display_name: Optional[str] = Field(default=None, max_length=64)
+
+
+class RegisterRequest(BaseModel):
+    name: str = Field(..., min_length=2, max_length=128, description="User's Full Name")
+    email: str = Field(..., min_length=3, max_length=128, description="User's Email Address")
+    password: str = Field(..., min_length=4, max_length=128, description="Account Password")
+    username: Optional[str] = None
+    display_name: Optional[str] = None
 
 
 def _get_user_from_header(authorization: Optional[str]) -> Optional[dict[str, Any]]:
@@ -183,7 +199,21 @@ _tables_preview_cache: dict[str, Any] | None = None
 
 
 @app.get("/api/tables/preview")
-def get_tables_preview() -> dict[str, Any]:
+def get_tables_preview(
+    dataset_mode: str = Query("demo"),
+    authorization: Optional[str] = Header(None),
+) -> dict[str, Any]:
+    if dataset_mode == "user":
+        user = _get_user_from_header(authorization)
+        if not user:
+            raise HTTPException(status_code=401, detail="Authentication required for user datasets.")
+        tables = list_user_tables(user["id"])
+        return _make_json_safe({
+            "tables": tables,
+            "total_tables": len(tables),
+            "mode": "user",
+        })
+
     global _tables_preview_cache
     if _tables_preview_cache is not None:
         return _tables_preview_cache
@@ -218,6 +248,7 @@ def get_tables_preview() -> dict[str, Any]:
         result = _make_json_safe({
             "tables": previews,
             "total_tables": len(previews),
+            "mode": "demo",
         })
         _tables_preview_cache = result
         return result
@@ -227,9 +258,15 @@ def get_tables_preview() -> dict[str, Any]:
 
 
 @app.post("/api/auth/register")
-def api_register(req: AuthRequest) -> dict[str, Any]:
+def api_register(req: RegisterRequest) -> dict[str, Any]:
     try:
-        res = register_user(req.username, req.password, req.display_name)
+        user_name = req.name or req.display_name or req.username or ""
+        res = register_user(
+            name=user_name,
+            email=req.email,
+            password=req.password,
+            username=req.username,
+        )
         return _make_json_safe(res)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -239,15 +276,69 @@ def api_register(req: AuthRequest) -> dict[str, Any]:
 
 
 @app.post("/api/auth/login")
-def api_login(req: AuthRequest) -> dict[str, Any]:
+def api_login(req: LoginRequest) -> dict[str, Any]:
+    login_id = req.identifier or req.username or req.email or ""
     try:
-        res = authenticate_user(req.username, req.password)
+        res = authenticate_user(login_id, req.password)
         return _make_json_safe(res)
     except ValueError as e:
         raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         logger.exception("Login failed: %s", e)
         raise HTTPException(status_code=500, detail="Authentication failed.")
+
+
+@app.post("/api/upload")
+async def upload_dataset_file(
+    file: UploadFile = File(...),
+    table_name: Optional[str] = Form(None),
+    authorization: Optional[str] = Header(None),
+) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required to upload datasets.")
+
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    try:
+        imported = import_dataset(
+            user_id=user["id"],
+            filename=file.filename or "uploaded_dataset.csv",
+            file_bytes=content,
+            custom_table_name=table_name,
+        )
+        return _make_json_safe({
+            "success": True,
+            "message": f"Successfully imported table '{imported['table_name']}'.",
+            "dataset": imported,
+        })
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.exception("Upload failed: %s", e)
+        raise HTTPException(status_code=500, detail=f"Failed to process dataset: {e}")
+
+
+@app.get("/api/user/tables")
+def get_user_tables(authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    tables = list_user_tables(user["id"])
+    return _make_json_safe({"tables": tables, "total": len(tables)})
+
+
+@app.delete("/api/user/tables/{tbl}")
+def remove_user_table(tbl: str, authorization: Optional[str] = Header(None)) -> dict[str, Any]:
+    user = _get_user_from_header(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    success = delete_user_table(user["id"], tbl)
+    if not success:
+        raise HTTPException(status_code=404, detail=f"Table '{tbl}' not found or could not be dropped.")
+    return {"success": True, "message": f"Table '{tbl}' deleted successfully."}
 
 
 @app.get("/api/auth/me")
@@ -292,11 +383,18 @@ def execute_query(req: QueryRequest, authorization: Optional[str] = Header(None)
     user = _get_user_from_header(authorization)
     graph = get_graph()
 
+    user_db_path = None
+    if req.dataset_mode == "user" and user:
+        p = get_user_db_path(user["id"])
+        if p.exists():
+            user_db_path = str(p)
+
     try:
         raw_state = run_query(
             user_query=req.query,
             compiled_graph=graph,
             max_retries=req.max_retries,
+            db_path=user_db_path,
         )
     except Exception as e:
         logger.exception("Error executing agent graph")
@@ -452,6 +550,12 @@ def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Heade
 
     def run_worker():
         graph = get_graph()
+        user_db_path = None
+        if req.dataset_mode == "user" and user:
+            p = get_user_db_path(user["id"])
+            if p.exists():
+                user_db_path = str(p)
+
         initial_state = {
             "user_query": req.query,
             "retry_count": 0,
@@ -459,6 +563,8 @@ def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Heade
             "error_history": [],
             "total_cost_usd": 0.0,
         }
+        if user_db_path:
+            initial_state["db_path"] = user_db_path
 
         start_time = time.perf_counter()
         accumulated_state: dict[str, Any] = dict(initial_state)

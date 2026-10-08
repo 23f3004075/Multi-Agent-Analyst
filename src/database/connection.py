@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import logging
 from contextlib import contextmanager
-from typing import Generator
+from pathlib import Path
+from typing import Any, Generator, Optional
 
 import duckdb
 
@@ -15,12 +16,15 @@ class DatabaseConnectionError(Exception):
     pass
 
 
-def create_secure_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
-    db_path = str(settings.database_path)
+def create_secure_connection(
+    settings: Settings,
+    db_path: Optional[str | Path] = None,
+) -> duckdb.DuckDBPyConnection:
+    target_path = str(db_path or settings.database_path)
 
     try:
-        conn = duckdb.connect(database=db_path, read_only=True)
-        logger.info("DuckDB connection opened (read_only=True): %s", db_path)
+        conn = duckdb.connect(database=target_path, read_only=True)
+        logger.info("DuckDB connection opened (read_only=True): %s", target_path)
 
     except duckdb.IOException as e:
         raise DatabaseConnectionError(
@@ -85,12 +89,13 @@ def _verify_lockdown(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 class ConnectionManager:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, db_path: Optional[str | Path] = None) -> None:
         self._settings = settings
+        self._db_path = db_path
         self._conn: duckdb.DuckDBPyConnection | None = None
 
     def __enter__(self) -> duckdb.DuckDBPyConnection:
-        self._conn = create_secure_connection(self._settings)
+        self._conn = create_secure_connection(self._settings, db_path=self._db_path)
         return self._conn
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
@@ -109,6 +114,9 @@ class ConnectionManager:
 
 
 @contextmanager
-def get_connection(settings: Settings) -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    with ConnectionManager(settings) as conn:
+def get_connection(
+    settings: Settings,
+    db_path: Optional[str | Path] = None,
+) -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    with ConnectionManager(settings, db_path=db_path) as conn:
         yield conn

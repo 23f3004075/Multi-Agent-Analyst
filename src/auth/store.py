@@ -47,6 +47,7 @@ def init_user_store() -> None:
                 CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE,
                     password_hash TEXT NOT NULL,
                     salt TEXT NOT NULL,
                     display_name TEXT NOT NULL,
@@ -54,6 +55,13 @@ def init_user_store() -> None:
                 );
                 """
             )
+
+            try:
+                conn.execute("ALTER TABLE users ADD COLUMN email TEXT;")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -99,22 +107,26 @@ def init_user_store() -> None:
                 now = datetime.now(timezone.utc).isoformat()
                 conn.execute(
                     """
-                    INSERT INTO users (username, password_hash, salt, display_name, created_at)
-                    VALUES (?, ?, ?, ?, ?);
+                    INSERT INTO users (username, email, password_hash, salt, display_name, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?);
                     """,
-                    ("admin", admin_hash, admin_salt, "Admin Analyst", now),
+                    ("admin", "admin@enterprise.ai", admin_hash, admin_salt, "Admin Analyst", now),
                 )
                 demo_salt = secrets.token_hex(16)
                 demo_hash = _hash_password("demo123", demo_salt)
                 conn.execute(
                     """
-                    INSERT INTO users (username, password_hash, salt, display_name, created_at)
-                    VALUES (?, ?, ?, ?, ?);
+                    INSERT INTO users (username, email, password_hash, salt, display_name, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?);
                     """,
-                    ("demo", demo_hash, demo_salt, "Demo User", now),
+                    ("demo", "demo@enterprise.ai", demo_hash, demo_salt, "Demo User", now),
                 )
                 conn.commit()
-                logger.info("Default accounts created: admin/admin123, demo/demo123")
+                logger.info("Default accounts created: admin@enterprise.ai/admin123, demo@enterprise.ai/demo123")
+            else:
+                conn.execute("UPDATE users SET email = 'admin@enterprise.ai' WHERE username = 'admin' AND (email IS NULL OR email = '');")
+                conn.execute("UPDATE users SET email = 'demo@enterprise.ai' WHERE username = 'demo' AND (email IS NULL OR email = '');")
+                conn.commit()
 
             logger.info("User store initialized at %s", DB_PATH)
         except Exception as e:
@@ -123,14 +135,27 @@ def init_user_store() -> None:
             conn.close()
 
 
-def register_user(username: str, password: str, display_name: Optional[str] = None) -> dict[str, Any]:
-    username = username.strip().lower()
-    if not username or len(username) < 3:
-        raise ValueError("Username must be at least 3 characters long.")
+def register_user(
+    name: str,
+    email: str,
+    password: str,
+    username: Optional[str] = None,
+) -> dict[str, Any]:
+    name = (name or "").strip()
+    if not name or len(name) < 2:
+        raise ValueError("Please provide a valid Full Name (at least 2 characters).")
+
+    email = (email or "").strip().lower()
+    if not email or "@" not in email or "." not in email:
+        raise ValueError("Please provide a valid Email address.")
+
     if not password or len(password) < 4:
         raise ValueError("Password must be at least 4 characters long.")
 
-    display = (display_name or username).strip()
+    user_handle = (username or email.split("@")[0]).strip().lower()
+    import re
+    user_handle = re.sub(r"[^a-z0-9_.-]", "", user_handle) or f"user_{secrets.token_hex(3)}"
+
     salt = secrets.token_hex(16)
     pw_hash = _hash_password(password, salt)
     now = datetime.now(timezone.utc).isoformat()
@@ -140,10 +165,10 @@ def register_user(username: str, password: str, display_name: Optional[str] = No
         try:
             cursor = conn.execute(
                 """
-                INSERT INTO users (username, password_hash, salt, display_name, created_at)
-                VALUES (?, ?, ?, ?, ?);
+                INSERT INTO users (username, email, password_hash, salt, display_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?);
                 """,
-                (username, pw_hash, salt, display, now),
+                (user_handle, email, pw_hash, salt, name, now),
             )
             conn.commit()
             user_id = cursor.lastrowid
@@ -160,33 +185,44 @@ def register_user(username: str, password: str, display_name: Optional[str] = No
                 "token": token,
                 "user": {
                     "id": user_id,
-                    "username": username,
-                    "display_name": display,
+                    "username": user_handle,
+                    "email": email,
+                    "display_name": name,
                 },
             }
-        except sqlite3.IntegrityError:
-            raise ValueError(f"Username '{username}' is already taken.")
+        except sqlite3.IntegrityError as e:
+            err_msg = str(e).lower()
+            if "email" in err_msg:
+                raise ValueError(f"An account with email '{email}' already exists.")
+            raise ValueError(f"Username or email '{email}' is already taken.")
         finally:
             conn.close()
 
 
-def authenticate_user(username: str, password: str) -> dict[str, Any]:
-    username = username.strip().lower()
+def authenticate_user(login_identifier: str, password: str) -> dict[str, Any]:
+    login_id = (login_identifier or "").strip().lower()
+    if not login_id:
+        raise ValueError("Please provide your Email or Username.")
+
     with _lock:
         conn = _get_connection()
         try:
             cursor = conn.execute(
-                "SELECT id, username, password_hash, salt, display_name FROM users WHERE username = ?;",
-                (username,),
+                """
+                SELECT id, username, email, password_hash, salt, display_name
+                FROM users
+                WHERE LOWER(username) = ? OR LOWER(email) = ?;
+                """,
+                (login_id, login_id),
             )
             row = cursor.fetchone()
             if not row:
-                raise ValueError("Invalid username or password.")
+                raise ValueError("Invalid credentials. Please check your email/username and password.")
 
             expected_hash = row["password_hash"]
             calculated_hash = _hash_password(password, row["salt"])
             if not secrets.compare_digest(expected_hash, calculated_hash):
-                raise ValueError("Invalid username or password.")
+                raise ValueError("Invalid credentials. Please check your email/username and password.")
 
             token = secrets.token_urlsafe(32)
             now = datetime.now(timezone.utc).isoformat()
@@ -203,6 +239,7 @@ def authenticate_user(username: str, password: str) -> dict[str, Any]:
                 "user": {
                     "id": row["id"],
                     "username": row["username"],
+                    "email": row["email"],
                     "display_name": row["display_name"],
                 },
             }
@@ -218,7 +255,7 @@ def get_user_by_token(token: str) -> Optional[dict[str, Any]]:
         try:
             cursor = conn.execute(
                 """
-                SELECT u.id, u.username, u.display_name, s.token, s.last_active
+                SELECT u.id, u.username, u.email, u.display_name, s.token, s.last_active
                 FROM sessions s
                 JOIN users u ON s.user_id = u.id
                 WHERE s.token = ?;
@@ -238,8 +275,13 @@ def get_user_by_token(token: str) -> Optional[dict[str, Any]]:
             return {
                 "id": row["id"],
                 "username": row["username"],
+                "email": row["email"],
                 "display_name": row["display_name"],
             }
+        except Exception:
+            return None
+        finally:
+            conn.close()
         except Exception:
             return None
         finally:

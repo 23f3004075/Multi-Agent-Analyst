@@ -1,4 +1,8 @@
 
+[v-cloak] {
+  display: none !important;
+}
+
 :root {
   --primary-color: #0f2b48;
   --primary-hover: #19436e;
@@ -643,29 +647,32 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at 50% 20%, #1e293b 0%, #0f172a 100%);
+  background: radial-gradient(circle at 50% 25%, #172554 0%, #0f172a 60%, #030712 100%);
   padding: 24px;
 }
 
 .auth-card {
   width: 100%;
-  max-width: 440px;
-  background: #1e293b;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  padding: 32px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  max-width: 480px;
+  background: rgba(30, 41, 59, 0.95);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 16px;
+  padding: 36px 32px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.05);
   color: #f8fafc;
 }
 
 .auth-brand-badge {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 1.2px;
   text-transform: uppercase;
   color: #38bdf8;
-  background: rgba(56, 189, 248, 0.1);
-  padding: 4px 10px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.25);
+  padding: 5px 12px;
   border-radius: 20px;
   display: inline-block;
   margin-bottom: 12px;
@@ -673,10 +680,10 @@ body {
 
 .auth-tabs {
   display: flex;
-  background: rgba(15, 23, 42, 0.6);
-  border-radius: 8px;
-  padding: 4px;
-  margin-bottom: 24px;
+  background: rgba(15, 23, 42, 0.7);
+  border-radius: 10px;
+  padding: 5px;
+  margin-bottom: 22px;
   border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
@@ -685,52 +692,99 @@ body {
   background: transparent;
   border: none;
   color: #94a3b8;
-  padding: 8px 12px;
+  padding: 10px 14px;
   font-size: 0.88rem;
   font-weight: 600;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: all 0.15s ease-in-out;
+  transition: all 0.2s ease;
+}
+
+.auth-tab-btn:hover {
+  color: #f1f5f9;
 }
 
 .auth-tab-btn.active {
-  background: #0d6efd;
+  background: #2563eb;
   color: #ffffff;
-  box-shadow: 0 2px 4px rgba(13, 110, 253, 0.3);
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+}
+
+.auth-field-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #cbd5e1;
+  margin-bottom: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.auth-field-hint {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 400;
 }
 
 .auth-input {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.25);
   color: #ffffff;
-  border-radius: 6px;
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .auth-input:focus {
-  background: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.95);
   border-color: #38bdf8;
   color: #ffffff;
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.25);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
 }
 
 .auth-demo-box {
-  background: rgba(15, 23, 42, 0.5);
-  border: 1px dashed rgba(255, 255, 255, 0.15);
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px dashed rgba(148, 163, 184, 0.25);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 22px;
+}
+
+.demo-account-card {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 12px;
-  margin-top: 20px;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+}
+
+.demo-account-card:hover {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.4);
 }
 
 .user-nav-chip {
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 20px;
-  padding: 4px 12px;
+  padding: 4px 14px;
   color: #f1f5f9;
   font-size: 0.82rem;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+
+.user-email-chip {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .session-indicator-badge {
@@ -755,5 +809,67 @@ body {
 .session-history-card:hover {
   border-color: var(--accent-blue);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.dataset-switcher {
+  display: flex;
+  background: rgba(15, 23, 42, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.dataset-pill {
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #94a3b8;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.dataset-pill.active {
+  background: #0d6efd;
+  color: #ffffff;
+}
+
+.upload-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.upload-modal-card {
+  width: 100%;
+  max-width: 540px;
+  background: #1e293b;
+  color: #f8fafc;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 26px;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.5);
+}
+
+.dropzone-box {
+  border: 2px dashed rgba(56, 189, 248, 0.35);
+  background: rgba(15, 23, 42, 0.5);
+  border-radius: 10px;
+  padding: 24px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dropzone-box:hover {
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.05);
 }
 
