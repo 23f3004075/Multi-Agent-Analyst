@@ -56,25 +56,22 @@ def router_node(state: AgentState) -> dict[str, Any]:
                 tbl_rows = conn.execute("SHOW TABLES").fetchall()
                 user_tables = [r[0] for r in tbl_rows]
                 ddl_parts = []
-                semantic_notes = []
+                tables_meta = []
                 for tbl in user_tables:
                     col_rows = conn.execute(f"DESCRIBE {tbl}").fetchall()
                     cols_def = ",\n  ".join([f"{col[0]} {col[1]}" for col in col_rows])
                     ddl_parts.append(f"CREATE TABLE {tbl} (\n  {cols_def}\n);")
-
-                    col_names = [c[0].lower() for c in col_rows]
-                    if "reviews_count" in col_names:
-                        semantic_notes.append(f"- **reviews_count**: Direct column in `{tbl}` representing total number of reviews.")
-                    if "rating" in col_names:
-                        semantic_notes.append(f"- **rating**: Direct column in `{tbl}` representing customer review rating.")
-                    if "brand" in col_names:
-                        semantic_notes.append(f"- **brand**: Direct column in `{tbl}` representing product brand.")
+                    tables_meta.append({
+                        "name": tbl,
+                        "columns": [{"name": c[0], "data_type": c[1]} for c in col_rows],
+                    })
 
                 conn.close()
 
-                metric_ctx = ""
-                if semantic_notes:
-                    metric_ctx = "## Custom Dataset Column Mappings\n" + "\n".join(semantic_notes) + "\n"
+                from src.schema.column_matcher import ColumnSemanticMatcher
+                col_matcher = ColumnSemanticMatcher()
+                matches = col_matcher.match_columns(query, tables_meta)
+                metric_ctx = col_matcher.format_column_context(matches)
 
                 if user_tables:
                     logger.info("Custom database schema linked: %s", user_tables)
@@ -96,8 +93,17 @@ def router_node(state: AgentState) -> dict[str, Any]:
     metric_tables = semantic_layer.get_tables_for_metrics(query)
     all_tables = list(dict.fromkeys(linked_tables + metric_tables))
 
+    # Dynamic column matching across all available tables
+    from src.schema.column_matcher import ColumnSemanticMatcher
+    col_matcher = ColumnSemanticMatcher()
+    tables_info = [inspector.get_table_metadata(tbl) for tbl in all_tables]
+    col_matches = col_matcher.match_columns(query, tables_info)
+    col_context = col_matcher.format_column_context(col_matches)
+
     linked_ddl = inspector.get_full_ddl(all_tables)
     metric_context = semantic_layer.get_metric_context(query)
+    if col_context:
+        metric_context = f"{metric_context}\n\n{col_context}".strip()
     decision = router.route(query, linked_tables=all_tables)
 
     interpretation_note = None

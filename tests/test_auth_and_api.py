@@ -206,4 +206,34 @@ def test_semantic_layer_recognizes_reviews_count():
     assert "products" in tables
 
 
+def test_column_semantic_matcher_captures_any_column():
+    from src.schema.column_matcher import ColumnSemanticMatcher
+
+    matcher = ColumnSemanticMatcher()
+    sample_tables = [
+        {
+            "name": "custom_inventory",
+            "columns": [
+                {"name": "sku_code", "data_type": "VARCHAR", "sample_values": ["SKU-001", "SKU-002"]},
+                {"name": "reviews_count", "data_type": "BIGINT", "sample_values": [50, 120]},
+                {"name": "warehouse_location", "data_type": "VARCHAR", "sample_values": ["NY-01", "TX-02"]},
+                {"name": "discount_percentage", "data_type": "DOUBLE", "sample_values": [15.5, 20.0]},
+            ],
+        }
+    ]
+
+    # Test exact and token matches for arbitrary new column names
+    matches = matcher.match_columns("show products with highest reviews count and warehouse location", sample_tables)
+    matched_cols = [m.column for m in matches]
+
+    assert "reviews_count" in matched_cols
+    assert "warehouse_location" in matched_cols
+
+    context = matcher.format_column_context(matches)
+    assert "reviews_count" in context
+    assert "warehouse_location" in context
+    assert "custom_inventory" in context
+
+
+
 
