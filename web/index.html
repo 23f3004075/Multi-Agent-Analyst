@@ -335,15 +335,28 @@
                   </select>
                 </div>
 
-                <button
-                  type="button"
-                  class="btn btn-primary px-4 fw-semibold"
-                  @click="submitQuery"
-                  :disabled="loading"
-                >
-                  <span v-if="loading" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                  {{ loading ? 'Executing...' : 'Run Query' }}
-                </button>
+                <div class="d-flex align-items-center gap-2">
+                  <button
+                    v-if="loading"
+                    type="button"
+                    class="btn btn-outline-danger px-3 fw-semibold d-flex align-items-center gap-2"
+                    @click="stopExecution"
+                    title="Stop current execution"
+                  >
+                    <span class="spinner-grow spinner-grow-sm text-danger" role="status" aria-hidden="true"></span>
+                    <span>Stop Execution</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="btn btn-primary px-4 fw-semibold"
+                    @click="submitQuery"
+                    :disabled="loading"
+                  >
+                    <span v-if="loading" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    {{ loading ? 'Executing...' : 'Run Query' }}
+                  </button>
+                </div>
               </div>
 
               <div v-if="loading && statusText" class="alert alert-info alert-custom mt-3 py-2 px-3 small mb-0">

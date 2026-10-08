@@ -99,6 +99,7 @@ createApp({
       authError: null,
       authLoading: false,
       sessionId: localStorage.getItem("agent_session_id") || ("sess_" + Math.random().toString(36).substring(2, 9)),
+      abortController: null,
       userHistory: [],
       historyLoading: false,
 
@@ -312,6 +313,13 @@ createApp({
       this.statusText = "Initializing pipeline...";
       this.resetStages();
 
+      if (this.abortController) {
+        try {
+          this.abortController.abort();
+        } catch (e) {}
+      }
+      this.abortController = new AbortController();
+
       const startTime = performance.now();
 
       try {
@@ -323,6 +331,7 @@ createApp({
         const response = await fetch("/api/query/stream", {
           method: "POST",
           headers: reqHeaders,
+          signal: this.abortController.signal,
           body: JSON.stringify({
             query: trimmed,
             max_retries: parseInt(this.maxRetries) || 2,
@@ -361,12 +370,38 @@ createApp({
         }
 
       } catch (err) {
+        if (err.name === "AbortError" || this.abortController?.signal?.aborted) {
+          console.info("Query execution stopped by user.");
+          this.statusText = "Execution stopped by user.";
+          return;
+        }
         console.error("Stream failed, falling back to standard execution:", err);
         await this.fallbackQuery(trimmed);
       } finally {
         this.loading = false;
-        this.statusText = "";
+        if (this.statusText === "Initializing pipeline..." || this.statusText === "Processing...") {
+          this.statusText = "";
+        }
+        this.abortController = null;
       }
+    },
+
+    stopExecution() {
+      if (this.abortController) {
+        try {
+          this.abortController.abort();
+        } catch (e) {
+          console.warn("Error aborting query execution:", e);
+        }
+        this.abortController = null;
+      }
+      this.loading = false;
+      this.statusText = "Execution stopped by user.";
+      Object.keys(this.stages).forEach((k) => {
+        if (this.stages[k].status === "pending") {
+          this.stages[k].status = "idle";
+        }
+      });
     },
 
     handleStreamEvent(data, startTime) {
@@ -487,6 +522,7 @@ createApp({
         const response = await fetch("/api/query", {
           method: "POST",
           headers: reqHeaders,
+          signal: this.abortController?.signal,
           body: JSON.stringify({
             query: queryText,
             max_retries: parseInt(this.maxRetries) || 2,
@@ -522,6 +558,10 @@ createApp({
         this.fetchTelemetryLogs();
         this.fetchUserHistory();
       } catch (err) {
+        if (err.name === "AbortError" || this.abortController?.signal?.aborted) {
+          this.statusText = "Execution stopped by user.";
+          return;
+        }
         this.error = err.message || "Failed to communicate with agent service.";
         Object.keys(this.stages).forEach((k) => {
           this.stages[k].status = "failed";

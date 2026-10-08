@@ -547,6 +547,7 @@ def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Heade
     from fastapi.responses import StreamingResponse
 
     event_queue: queue.Queue = queue.Queue()
+    stop_event = threading.Event()
 
     def run_worker():
         graph = get_graph()
@@ -576,6 +577,10 @@ def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Heade
             })
 
             for step_event in graph.stream(initial_state, stream_mode="updates"):
+                if stop_event.is_set():
+                    logger.info("Stream cancelled by client stop event.")
+                    break
+
                 node_name = list(step_event.keys())[0] if step_event else ""
                 node_output = step_event.get(node_name, {})
                 accumulated_state.update(node_output)
@@ -718,6 +723,10 @@ def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Heade
                         "final_response": clean_resp,
                     })
 
+            if stop_event.is_set():
+                logger.info("Streaming query execution cancelled early by client.")
+                return
+
             elapsed_ms = round((time.perf_counter() - start_time) * 1000, 1)
 
             guardrail_ok = accumulated_state.get("guardrail_passed", True)
@@ -828,12 +837,20 @@ def execute_query_stream(req: QueryRequest, authorization: Optional[str] = Heade
     threading.Thread(target=run_worker, daemon=True).start()
 
     def event_generator():
-        while True:
-            item = event_queue.get()
-            if item is None:
-                break
-            safe_item = _make_json_safe(item)
-            yield f"data: {json.dumps(safe_item)}\n\n"
+        try:
+            while True:
+                if stop_event.is_set():
+                    break
+                try:
+                    item = event_queue.get(timeout=0.5)
+                except queue.Empty:
+                    continue
+                if item is None:
+                    break
+                safe_item = _make_json_safe(item)
+                yield f"data: {json.dumps(safe_item)}\n\n"
+        finally:
+            stop_event.set()
 
     return StreamingResponse(
         event_generator(),
