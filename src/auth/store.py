@@ -282,10 +282,6 @@ def get_user_by_token(token: str) -> Optional[dict[str, Any]]:
             return None
         finally:
             conn.close()
-        except Exception:
-            return None
-        finally:
-            conn.close()
 
 
 def logout_user(token: str) -> bool:
@@ -344,21 +340,38 @@ def save_user_history(
             conn.close()
 
 
-def get_user_history(user_id: int, limit: int = 50) -> list[dict[str, Any]]:
+def get_user_history(
+    user_id: int,
+    session_id: Optional[str] = None,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
     with _lock:
         conn = _get_connection()
         try:
-            cursor = conn.execute(
-                """
-                SELECT id, session_id, query, status, route_decision,
-                       model_used, generated_sql, summary, result_json, created_at
-                FROM user_history
-                WHERE user_id = ?
-                ORDER BY created_at DESC
-                LIMIT ?;
-                """,
-                (user_id, limit),
-            )
+            if session_id:
+                cursor = conn.execute(
+                    """
+                    SELECT id, session_id, query, status, route_decision,
+                           model_used, generated_sql, summary, result_json, created_at
+                    FROM user_history
+                    WHERE user_id = ? AND session_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?;
+                    """,
+                    (user_id, session_id, limit),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT id, session_id, query, status, route_decision,
+                           model_used, generated_sql, summary, result_json, created_at
+                    FROM user_history
+                    WHERE user_id = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?;
+                    """,
+                    (user_id, limit),
+                )
             rows = cursor.fetchall()
             history = []
             for r in rows:
