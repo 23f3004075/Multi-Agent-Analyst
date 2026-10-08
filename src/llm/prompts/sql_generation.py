@@ -73,6 +73,7 @@ The following SQL query failed:
 
 ## Instructions
 Fix the SQL query to address the error above. Common fixes:
+- Table not found: ONLY select from tables explicitly defined in Database Schema above. NEVER invent table names.
 - Column not found: check the schema for correct column names
 - Syntax error: ensure DuckDB dialect compatibility
 - Type mismatch: add explicit CAST() where needed

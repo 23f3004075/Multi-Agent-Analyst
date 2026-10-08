@@ -111,3 +111,26 @@ class TestRouterNode:
         assert result["route_decision"] in ("TIER_1_SLM", "TIER_2_FRONTIER")
         assert "linked_ddl" in result
         assert len(result["linked_ddl"]) > 0
+
+    def test_router_node_custom_db_schema_linking(self, tmp_path) -> None:
+        import duckdb
+        custom_db_file = tmp_path / "custom_test.duckdb"
+        conn = duckdb.connect(str(custom_db_file))
+        conn.execute("CREATE TABLE amazon_products (product_id VARCHAR, title VARCHAR, price DOUBLE);")
+        conn.close()
+
+        state: AgentState = {
+            "user_query": "What are top products by price?",
+            "db_path": str(custom_db_file),
+            "retry_count": 0,
+            "max_retries": 2,
+            "error_history": [],
+        }
+
+        result = router_node(state)
+
+        assert result["linked_tables"] == ["amazon_products"]
+        assert "amazon_products" in result["linked_ddl"]
+        assert "price" in result["linked_ddl"]
+        assert "orders" not in result["linked_tables"]
+

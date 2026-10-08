@@ -37,16 +37,19 @@ class Settings(BaseSettings):
     anthropic_api_key: Optional[str] = Field(default=None, repr=False)
     gemini_api_key: Optional[str] = Field(default=None, repr=False)
 
-    tier1_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
-    tier1_fallback_model: str = "nvidia/nemotron-3.5-lightning:free"
+    tier1_model: str = "qwen/qwen-2.5-coder-32b-instruct:free"
+    tier1_fallback_model: str = "meta-llama/llama-3.1-8b-instruct:free"
     tier1_max_latency_ms: int = 15000
     ollama_api_base: str = "http://localhost:11434"
 
-    tier2_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+    tier2_model: str = "meta-llama/llama-3.3-70b-instruct:free"
     tier2_fallback_model: str = "nvidia/nemotron-3.5-lightning:free"
     fallback_models_pool: list[str] = [
+        "qwen/qwen-2.5-coder-32b-instruct:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "meta-llama/llama-3.1-8b-instruct:free",
         "nvidia/nemotron-3.5-lightning:free",
-        "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
     ]
 
     @property

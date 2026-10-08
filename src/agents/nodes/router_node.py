@@ -45,6 +45,37 @@ def router_node(state: AgentState) -> dict[str, Any]:
     query = state.get("cleaned_query") or state.get("user_query", "")
     logger.info("Routing query: '%s'", query[:80])
 
+    custom_db = state.get("db_path")
+    if custom_db:
+        from pathlib import Path
+        import duckdb
+        db_p = Path(custom_db)
+        if db_p.exists():
+            try:
+                conn = duckdb.connect(str(db_p), read_only=True)
+                tbl_rows = conn.execute("SHOW TABLES").fetchall()
+                user_tables = [r[0] for r in tbl_rows]
+                ddl_parts = []
+                for tbl in user_tables:
+                    col_rows = conn.execute(f"DESCRIBE {tbl}").fetchall()
+                    cols_def = ", ".join([f"{col[0]} {col[1]}" for col in col_rows])
+                    ddl_parts.append(f"CREATE TABLE {tbl} (\n  {cols_def}\n);")
+                conn.close()
+
+                if user_tables:
+                    logger.info("Custom database schema linked: %s", user_tables)
+                    return {
+                        "route_decision": "TIER_1_SLM",
+                        "route_confidence": 1.0,
+                        "linked_tables": user_tables,
+                        "linked_ddl": "\n\n".join(ddl_parts),
+                        "metric_context": "",
+                        "ambiguity_flag": False,
+                        "interpretation_note": f"Custom dataset active with tables: {', '.join(user_tables)}.",
+                    }
+            except Exception as e:
+                logger.warning("Failed inspecting custom db schema: %s", e)
+
     linker, router, semantic_layer, inspector = _get_components()
 
     linked_tables = linker.link(query)
