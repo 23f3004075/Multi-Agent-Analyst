@@ -15,8 +15,30 @@ logger = logging.getLogger(__name__)
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "query_telemetry.db"
+JSON_LOG_PATH = DATA_DIR / "query_logs.json"
 
 _lock = threading.Lock()
+
+
+def _append_to_json_file(log_entry: dict[str, Any]) -> None:
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        logs: list[dict[str, Any]] = []
+        if JSON_LOG_PATH.exists():
+            try:
+                with open(JSON_LOG_PATH, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        logs = data
+            except Exception:
+                logs = []
+        logs.append(log_entry)
+        if len(logs) > 1000:
+            logs = logs[-1000:]
+        with open(JSON_LOG_PATH, "w", encoding="utf-8") as f:
+            json.dump(logs, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.warning("Failed writing telemetry entry to JSON file: %s", e)
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -115,6 +137,25 @@ def record_query_log(
             )
             conn.commit()
             log_id = cursor.lastrowid or 0
+
+            log_entry = {
+                "id": log_id,
+                "timestamp": now_iso,
+                "query": clean_query,
+                "status": status.upper(),
+                "model_tier": model_tier,
+                "model_used": model_used,
+                "router_confidence": float(router_confidence),
+                "latency_ms": float(latency_ms),
+                "cost_usd": float(cost_usd),
+                "retry_count": int(retry_count),
+                "security_check": security_check,
+                "row_count": int(row_count),
+                "generated_sql": clean_sql,
+                "error_message": clean_error,
+            }
+            _append_to_json_file(log_entry)
+
             logger.info(
                 "Logged query telemetry [ID=%d, Status=%s, Tier=%s, Latency=%.1fms, Cost=$%.4f]",
                 log_id,
@@ -254,6 +295,12 @@ def clear_logs() -> bool:
         try:
             conn.execute("DELETE FROM query_logs;")
             conn.commit()
+            if JSON_LOG_PATH.exists():
+                try:
+                    with open(JSON_LOG_PATH, "w", encoding="utf-8") as f:
+                        json.dump([], f)
+                except Exception as je:
+                    logger.warning("Failed resetting JSON log file: %s", je)
             return True
         except Exception as e:
             logger.error("Failed clearing telemetry logs: %s", e)
@@ -282,3 +329,20 @@ def export_logs_csv() -> str:
             return ""
         finally:
             conn.close()
+
+
+def export_logs_json() -> str:
+    with _lock:
+        conn = _get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT * FROM query_logs ORDER BY id DESC;"
+            ).fetchall()
+            logs = [dict(r) for r in rows]
+            return json.dumps(logs, indent=2, default=str)
+        except Exception as e:
+            logger.error("Failed exporting telemetry JSON: %s", e)
+            return "[]"
+        finally:
+            conn.close()
+

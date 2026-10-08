@@ -18,7 +18,7 @@
 
   <link rel="stylesheet" href="vendor/bootstrap.min.css?v=2.2">
   
-  <link rel="stylesheet" href="style.css?v=2.2">
+  <link rel="stylesheet" href="style.css?v=2.5">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -364,8 +364,53 @@
                 <span>{{ statusText }}</span>
               </div>
 
-              <div v-if="error" class="alert alert-danger alert-custom mt-3 py-2 px-3 small mb-0">
-                <strong>Error:</strong> {{ error }}
+              <div v-if="error" class="alert alert-danger alert-custom mt-3 py-2 px-3 small mb-0 d-flex justify-content-between align-items-center">
+                <div>
+                  <strong>Error:</strong> {{ error }}
+                </div>
+                <button type="button" class="btn-close btn-close-sm" @click="error = null" aria-label="Dismiss error"></button>
+              </div>
+
+              <!-- Small section with hover popover suggesting relevant queries -->
+              <div v-if="(error || hasMistakeQuery) && relevantSuggestions.length > 0" class="query-suggestions-hover-container mt-2">
+                <div class="suggestions-hover-trigger p-2 px-3 rounded d-flex align-items-center justify-content-between">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-warning text-dark fw-bold" style="font-size: 0.72rem;">Suggested Queries</span>
+                    <span class="small text-secondary fw-semibold">
+                      {{ error ? 'Your question encountered an issue. Hover to view relevant query suggestions' : 'Hover to view relevant queries for your question' }}
+                    </span>
+                  </div>
+                  <span class="small text-primary fw-semibold d-flex align-items-center gap-1">
+                    <span>Hover for suggestions</span>
+                    <span style="font-size: 0.85rem;">&rarr;</span>
+                  </span>
+                </div>
+
+                <div class="suggestions-hover-popover card shadow-lg border-primary">
+                  <div class="card-header bg-primary text-white py-2 px-3 d-flex justify-content-between align-items-center">
+                    <span class="small fw-bold">Relevant Query Suggestions</span>
+                    <span class="badge bg-light text-primary" style="font-size: 0.68rem;">Click to apply</span>
+                  </div>
+                  <div class="card-body p-2">
+                    <div class="text-muted small mb-2 px-1" style="font-size: 0.76rem;">
+                      These schema-aligned questions match your intent and avoid missing columns or dialect errors:
+                    </div>
+                    <div class="list-group list-group-flush">
+                      <button
+                        v-for="(suggestion, sIdx) in relevantSuggestions"
+                        :key="sIdx"
+                        type="button"
+                        class="list-group-item list-group-item-action p-2 d-flex justify-content-between align-items-center rounded mb-1 suggestion-item"
+                        @click="applySuggestedQuery(suggestion)"
+                      >
+                        <span class="small text-dark fw-medium text-start me-2">{{ suggestion }}</span>
+                        <span class="btn btn-xs btn-outline-primary py-0 px-2 flex-shrink-0" style="font-size: 0.72rem;">
+                          Use Query
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -783,6 +828,9 @@
                     <a href="/api/logs/export" class="btn btn-sm btn-outline-primary" download>
                       Export CSV
                     </a>
+                    <a href="/api/logs/export/json" class="btn btn-sm btn-outline-info" download>
+                      Export JSON
+                    </a>
                     <button type="button" class="btn btn-sm btn-outline-danger" @click="clearTelemetryLogs">
                       Clear Logs
                     </button>
@@ -950,7 +998,17 @@
                   </table>
                 </div>
 
-                <div v-if="selectedLog" class="card mt-3 border-secondary">
+                <div v-if="selectedLog" class="alert alert-info py-2 px-3 small mt-3 mb-0 d-flex justify-content-between align-items-center">
+                  <div class="d-flex align-items-center gap-2">
+                    <span class="badge bg-primary">Log #{{ selectedLog.id }}</span>
+                    <span><strong>Results / log details below</strong> &mdash; Audit inspection is open below.</span>
+                  </div>
+                  <button type="button" class="btn btn-xs btn-outline-primary py-0 px-2" style="font-size: 0.75rem;" @click="scrollToLogDetails">
+                    Scroll down &darr;
+                  </button>
+                </div>
+
+                <div v-if="selectedLog" id="log-detail-card" class="card mt-2 border-secondary">
                   <div class="card-header bg-light d-flex justify-content-between align-items-center py-2">
                     <span class="fw-bold small">
                       Log Detail #{{ selectedLog.id }} &mdash; Status: <span :class="selectedLog.status === 'SUCCESS' ? 'text-success' : 'text-danger'">{{ selectedLog.status }}</span>
@@ -1175,6 +1233,42 @@
         </div>
       </div>
     </div>
+
+    <!-- Inspect Toast Popup Notification -->
+    <div
+      v-if="inspectToast.show"
+      class="inspect-toast-notification alert alert-dark shadow-lg d-flex align-items-center justify-content-between p-3"
+      role="alert"
+    >
+      <div class="d-flex align-items-center gap-2">
+        <span
+          class="badge"
+          :class="inspectToast.status === 'SUCCESS' ? 'bg-success' : (inspectToast.status === 'BLOCKED' ? 'bg-warning text-dark' : 'bg-danger')"
+        >
+          Log #{{ inspectToast.logId }}
+        </span>
+        <div>
+          <div class="fw-bold small mb-0 text-white">Results / log details below</div>
+          <div class="text-white-50" style="font-size: 0.78rem;">{{ inspectToast.message }}</div>
+        </div>
+      </div>
+      <div class="d-flex align-items-center gap-2 ms-3">
+        <button
+          type="button"
+          class="btn btn-sm btn-primary py-1 px-2 fw-semibold flex-shrink-0"
+          style="font-size: 0.75rem;"
+          @click="scrollToLogDetails"
+        >
+          View Details &darr;
+        </button>
+        <button
+          type="button"
+          class="btn-close btn-close-white btn-close-sm"
+          @click="inspectToast.show = false"
+          aria-label="Close"
+        ></button>
+      </div>
+    </div>
   </div>
 
   <script src="vendor/vue.global.prod.js?v=2.2"></script>
@@ -1182,6 +1276,6 @@
   <script src="vendor/marked.min.js?v=2.2"></script>
   <script src="vendor/plotly.min.js?v=2.2"></script>
 
-  <script src="app.js?v=2.4"></script>
+  <script src="app.js?v=2.5"></script>
 </body>
 </html>

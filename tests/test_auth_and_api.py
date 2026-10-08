@@ -131,3 +131,48 @@ def test_ast_validator_allows_data_type_param():
     result = validate_sql(sql)
     assert "DECIMAL(10, 2)" in result or "formatted_price" in result
 
+
+def test_telemetry_json_persistence_and_export():
+    import json
+    from src.observability.log_store import (
+        JSON_LOG_PATH,
+        export_logs_json,
+        record_query_log,
+    )
+    from fastapi.testclient import TestClient
+    from src.api.server import app
+
+    log_id = record_query_log(
+        query="test JSON telemetry persistence",
+        status="SUCCESS",
+        model_tier="Tier 1: SLM",
+        model_used="test-model",
+        router_confidence=0.99,
+        latency_ms=120.0,
+        cost_usd=0.0001,
+        retry_count=0,
+        security_check="Passed",
+        row_count=5,
+        generated_sql="SELECT 1;",
+        error_message="",
+    )
+    assert log_id > 0
+    assert JSON_LOG_PATH.exists()
+
+    with open(JSON_LOG_PATH, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    assert isinstance(data, list)
+    matching = [entry for entry in data if entry["id"] == log_id]
+    assert len(matching) == 1
+    assert matching[0]["query"] == "test JSON telemetry persistence"
+
+    exported = export_logs_json()
+    exported_list = json.loads(exported)
+    assert any(entry["id"] == log_id for entry in exported_list)
+
+    client = TestClient(app)
+    res = client.get("/api/logs/export/json")
+    assert res.status_code == 200
+    assert res.headers["content-type"] == "application/json"
+
+

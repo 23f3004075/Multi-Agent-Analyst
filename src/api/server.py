@@ -36,6 +36,7 @@ from src.config import get_settings
 from src.observability.log_store import (
     clear_logs,
     export_logs_csv,
+    export_logs_json,
     get_logs,
     get_stats,
     init_log_store,
@@ -920,6 +921,19 @@ def export_logs() -> Response:
         media_type="text/csv",
         headers={
             "Content-Disposition": 'attachment; filename="query_telemetry_logs.csv"',
+            "Cache-Control": "no-cache",
+        },
+    )
+
+
+@app.get("/api/logs/export/json")
+def export_logs_as_json() -> Response:
+    json_data = export_logs_json()
+    return Response(
+        content=json_data,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": 'attachment; filename="query_telemetry_logs.json"',
             "Cache-Control": "no-cache",
         },
     )

@@ -110,7 +110,15 @@ createApp({
       uploadCustomTableName: "",
       uploadLoading: false,
       uploadError: null,
-      uploadSuccessMsg: null
+      uploadSuccessMsg: null,
+
+      inspectToast: {
+        show: false,
+        logId: null,
+        status: "",
+        message: ""
+      },
+      inspectToastTimer: null
     };
   },
 
@@ -122,6 +130,98 @@ createApp({
   },
 
   computed: {
+    hasMistakeQuery() {
+      if (this.error) return true;
+      const q = (this.query || "").toLowerCase();
+      if (
+        q.includes("brand") ||
+        q.includes("profit") ||
+        q.includes("delete ") ||
+        q.includes("drop ") ||
+        q.includes("attach ") ||
+        q.includes("alter ")
+      ) {
+        return true;
+      }
+      return false;
+    },
+
+    relevantSuggestions() {
+      const q = (this.query || "").toLowerCase();
+
+      if (this.datasetMode === "user" && this.userTables && this.userTables.length > 0) {
+        return this.userTables.map(t => `Show top 10 rows from ${t.table_name}`).slice(0, 4);
+      }
+
+      const templates = [
+        {
+          text: "Top 5 product categories with highest average review rating",
+          keywords: ["brand", "brands", "rating", "ratings", "score", "scores", "star", "stars", "highest", "best", "review", "reviews"]
+        },
+        {
+          text: "Average review score by product category",
+          keywords: ["review", "reviews", "score", "rating", "ratings", "category", "categories", "avg", "average", "satisfaction"]
+        },
+        {
+          text: "Top 10 product categories by total sales revenue",
+          keywords: ["sales", "revenue", "product", "products", "category", "categories", "money", "top", "highest", "earning"]
+        },
+        {
+          text: "Monthly order trend and revenue for 2017 to 2018",
+          keywords: ["monthly", "month", "trend", "timeline", "revenue", "2017", "2018", "year", "date", "order", "orders"]
+        },
+        {
+          text: "Show distribution of payment types as a pie chart",
+          keywords: ["payment", "payments", "pie", "distribution", "type", "types", "method", "methods", "credit", "boleto", "voucher"]
+        },
+        {
+          text: "Average delivery delay in days grouped by customer state",
+          keywords: ["delivery", "delay", "days", "state", "shipping", "late", "duration", "time", "speed", "freight"]
+        },
+        {
+          text: "Top 10 highest-value customers by lifetime spending",
+          keywords: ["customer", "customers", "client", "spending", "spend", "value", "lifetime", "orders", "buyers", "buyer"]
+        },
+        {
+          text: "Count of orders by order status",
+          keywords: ["status", "count", "orders", "order", "delivered", "canceled", "shipped", "processing"]
+        },
+        {
+          text: "Average freight value by customer state",
+          keywords: ["freight", "shipping", "cost", "price", "state", "delivery", "fee"]
+        },
+        {
+          text: "Top 10 cities with the most customers",
+          keywords: ["city", "cities", "location", "geo", "state", "customers", "users", "where"]
+        }
+      ];
+
+      const scored = templates.map(t => {
+        let score = 0;
+        for (const kw of t.keywords) {
+          if (q.includes(kw)) {
+            score += 2;
+          }
+        }
+        return { text: t.text, score };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      const topMatches = scored.filter(s => s.score > 0).map(s => s.text);
+      if (topMatches.length >= 3) {
+        return topMatches.slice(0, 4);
+      }
+
+      const defaults = [
+        "Top 5 product categories with highest average review rating",
+        "Top 10 product categories by total sales revenue",
+        "Monthly order trend and revenue for 2017 to 2018",
+        "Average delivery delay in days grouped by customer state"
+      ];
+      const combined = [...new Set([...topMatches, ...defaults])];
+      return combined.slice(0, 4);
+    },
+
     renderedSummary() {
       const raw = this.result && this.result.final_response ? this.result.final_response : "";
       if (!raw) return "";
@@ -645,8 +745,45 @@ createApp({
       }
     },
 
+    applySuggestedQuery(suggested) {
+      this.query = suggested;
+      this.error = null;
+      this.$nextTick(() => {
+        const input = document.getElementById("queryInput");
+        if (input) {
+          input.focus();
+        }
+      });
+    },
+
     showLogDetail(log) {
       this.selectedLog = log;
+      if (this.inspectToastTimer) {
+        clearTimeout(this.inspectToastTimer);
+      }
+      this.inspectToast = {
+        show: true,
+        logId: log.id,
+        status: log.status,
+        message: `Log #${log.id} details loaded. Audit inspection and query execution results are displayed below.`
+      };
+      this.inspectToastTimer = setTimeout(() => {
+        this.inspectToast.show = false;
+      }, 5000);
+
+      this.$nextTick(() => {
+        const el = document.getElementById("log-detail-card");
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
+    },
+
+    scrollToLogDetails() {
+      const el = document.getElementById("log-detail-card");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
     },
 
     formatLogTime(isoStr) {
