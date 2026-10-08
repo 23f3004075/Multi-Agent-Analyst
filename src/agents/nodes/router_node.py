@@ -56,11 +56,25 @@ def router_node(state: AgentState) -> dict[str, Any]:
                 tbl_rows = conn.execute("SHOW TABLES").fetchall()
                 user_tables = [r[0] for r in tbl_rows]
                 ddl_parts = []
+                semantic_notes = []
                 for tbl in user_tables:
                     col_rows = conn.execute(f"DESCRIBE {tbl}").fetchall()
-                    cols_def = ", ".join([f"{col[0]} {col[1]}" for col in col_rows])
+                    cols_def = ",\n  ".join([f"{col[0]} {col[1]}" for col in col_rows])
                     ddl_parts.append(f"CREATE TABLE {tbl} (\n  {cols_def}\n);")
+
+                    col_names = [c[0].lower() for c in col_rows]
+                    if "reviews_count" in col_names:
+                        semantic_notes.append(f"- **reviews_count**: Direct column in `{tbl}` representing total number of reviews.")
+                    if "rating" in col_names:
+                        semantic_notes.append(f"- **rating**: Direct column in `{tbl}` representing customer review rating.")
+                    if "brand" in col_names:
+                        semantic_notes.append(f"- **brand**: Direct column in `{tbl}` representing product brand.")
+
                 conn.close()
+
+                metric_ctx = ""
+                if semantic_notes:
+                    metric_ctx = "## Custom Dataset Column Mappings\n" + "\n".join(semantic_notes) + "\n"
 
                 if user_tables:
                     logger.info("Custom database schema linked: %s", user_tables)
@@ -69,7 +83,7 @@ def router_node(state: AgentState) -> dict[str, Any]:
                         "route_confidence": 1.0,
                         "linked_tables": user_tables,
                         "linked_ddl": "\n\n".join(ddl_parts),
-                        "metric_context": "",
+                        "metric_context": metric_ctx,
                         "ambiguity_flag": False,
                         "interpretation_note": f"Custom dataset active with tables: {', '.join(user_tables)}.",
                     }

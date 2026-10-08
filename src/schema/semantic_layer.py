@@ -71,6 +71,18 @@ OLIST_METRICS: list[MetricDefinition] = [
         aliases=["rating", "average rating", "review rating", "satisfaction"],
     ),
     MetricDefinition(
+        name="review_count",
+        display_name="Review Count",
+        sql_expression="COUNT(DISTINCT r.review_id)",
+        description="Total count of customer reviews. "
+                    "For product reviews: products p JOIN order_items oi ON p.product_id = oi.product_id JOIN order_reviews r ON oi.order_id = r.order_id",
+        tables_involved=["order_reviews", "order_items", "products"],
+        aliases=[
+            "review count", "reviews count", "reviews_count", "number of reviews",
+            "total reviews", "review volume", "most reviewed", "product reviews"
+        ],
+    ),
+    MetricDefinition(
         name="delivery_time_days",
         display_name="Delivery Time (Days)",
         sql_expression=(

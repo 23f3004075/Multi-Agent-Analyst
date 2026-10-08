@@ -176,3 +176,34 @@ def test_telemetry_json_persistence_and_export():
     assert res.headers["content-type"] == "application/json"
 
 
+def test_extract_sql_rejects_conversational_chatter():
+    from src.agents.nodes.sql_generator import _extract_sql
+
+    conversational_text = "Did you mean category`? Or maybe `product_name_lenght` is a mistype?"
+    extracted = _extract_sql(conversational_text)
+    assert extracted == "", f"Expected empty string but got: {extracted}"
+
+
+def test_ast_validator_rejects_empty_sql_with_clear_message():
+    from src.agents.nodes.ast_validator import ast_validator_node
+
+    state = {"generated_sql": ""}
+    result = ast_validator_node(state)  # type: ignore
+    assert result["ast_valid"] is False
+    assert "No executable SQL statement found" in result["ast_error"]
+
+
+def test_semantic_layer_recognizes_reviews_count():
+    from src.schema.semantic_layer import SemanticLayer
+
+    layer = SemanticLayer()
+    metrics = layer.find_relevant_metrics("top 5 products by reviews_count")
+    assert any(m.name == "review_count" for m in metrics)
+
+    tables = layer.get_tables_for_metrics("top products with highest reviews count")
+    assert "order_reviews" in tables
+    assert "order_items" in tables
+    assert "products" in tables
+
+
+

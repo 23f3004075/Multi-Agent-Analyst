@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 def ast_validator_node(state: AgentState) -> dict[str, Any]:
     sql = state.get("generated_sql")
 
-    if not sql:
+    if not sql or not sql.strip():
         return {
             "ast_valid": False,
-            "ast_error": "No SQL was generated",
+            "ast_error": "No executable SQL statement found in model response (model outputted conversational text or questions instead of a SELECT query).",
         }
 
     logger.info("AST validation: %s", sql[:200])

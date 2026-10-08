@@ -76,14 +76,22 @@ def _extract_sql(raw: str) -> str:
             except Exception:
                 continue
 
-    # 4. Fallback cleanup
+    # 4. Fallback cleanup - only return if it actually parses as valid SQL (Select or Union)
     cleaned = text
     if fences:
         cleaned = fences[-1].strip()
     if ";" in cleaned:
         cleaned = cleaned.split(";")[0].strip()
 
-    return cleaned.rstrip(";")
+    cleaned = cleaned.rstrip(";")
+    try:
+        parsed = sqlglot.parse_one(cleaned, read="duckdb")
+        if isinstance(parsed, (exp.Select, exp.Union)) or parsed.find(exp.Select):
+            return cleaned
+    except Exception:
+        pass
+
+    return ""
 
 
 def sql_generator_node(state: AgentState) -> dict[str, Any]:
@@ -97,12 +105,18 @@ def sql_generator_node(state: AgentState) -> dict[str, Any]:
     client = _get_client()
     model_tier = "tier1" if tier == "TIER_1_SLM" else "tier2"
 
-    if retry_count > 0 and state.get("generated_sql") and state.get("execution_error"):
+    last_error = (
+        state.get("execution_error")
+        or state.get("ast_error")
+        or (error_history[-1] if error_history else "")
+    )
+
+    if retry_count > 0 and last_error:
         system, user = build_self_heal_prompt(
             user_query=query,
             schema_ddl=ddl,
-            failed_sql=state["generated_sql"],
-            error_message=state.get("execution_error", ""),
+            failed_sql=state.get("generated_sql") or "-- No valid SQL produced in previous attempt",
+            error_message=last_error,
             error_history=error_history,
             metric_context=metric_ctx,
         )
@@ -125,8 +139,8 @@ def sql_generator_node(state: AgentState) -> dict[str, Any]:
         system=system,
         model_tier=model_tier,
         temperature=0.0,
-        max_tokens=1024,
-        reasoning=(retry_count > 0),
+        max_tokens=600,
+        reasoning=False,
     )
 
     sql = _extract_sql(response.content)
