@@ -120,10 +120,17 @@ class LLMClient:
                             raise RuntimeError(f"OpenRouter provider error: {err_msg}")
 
                         reasoning_content = None
-                        if hasattr(message, "reasoning"):
+                        if hasattr(message, "reasoning") and message.reasoning:
                             reasoning_content = message.reasoning
-                        elif hasattr(message, "reasoning_content"):
+                        elif hasattr(message, "reasoning_content") and message.reasoning_content:
                             reasoning_content = message.reasoning_content
+
+                        if content and ("<think>" in content.lower() or "<thought>" in content.lower()):
+                            import re
+                            think_match = re.search(r"<(?:think|thought)>([\s\S]*?)</(?:think|thought)>", content, re.IGNORECASE)
+                            if think_match and not reasoning_content:
+                                reasoning_content = think_match.group(1).strip()
+                            content = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", content, flags=re.IGNORECASE).strip()
 
                         reasoning_details = getattr(message, "reasoning_details", None)
 

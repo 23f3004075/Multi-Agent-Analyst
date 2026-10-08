@@ -26,51 +26,62 @@ def _get_client() -> LLMClient:
 
 def _extract_sql(raw: str) -> str:
     import sqlglot
+    from sqlglot import exp
 
-    fences = re.findall(r"```(?:sql)?\s*([\s\S]*?)\s*```", raw, re.IGNORECASE)
-    cleaned = fences[0].strip() if fences else raw.strip()
+    if not raw or not raw.strip():
+        return ""
 
-    match = re.search(r"((?:WITH\s+(?:RECURSIVE\s+)?[a-zA-Z_][a-zA-Z0-9_]*\s+AS\s*\(|SELECT\b)[\s\S]+)", cleaned, re.IGNORECASE)
-    if match:
-        cleaned = match.group(1).strip()
+    # 1. Strip reasoning / thinking tags
+    text = re.sub(r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", "", raw, flags=re.IGNORECASE).strip()
 
-    if ";" in cleaned:
-        cleaned = cleaned.split(";")[0].strip()
-
-    try:
-        sqlglot.parse_one(cleaned, read="duckdb")
-        return cleaned.rstrip(";")
-    except Exception:
-        pass
-
-    limit_match = re.search(r"(.*?\bLIMIT\s+\d+)", cleaned, re.IGNORECASE | re.DOTALL)
-    if limit_match:
-        candidate = limit_match.group(1).strip()
+    # 2. Check markdown code fences in reverse order (models usually put explanation first, final SQL in last block)
+    fences = re.findall(r"```(?:sql)?\s*([\s\S]*?)\s*```", text, re.IGNORECASE)
+    for fence in reversed(fences):
+        clean_fence = fence.strip().rstrip(";")
         try:
-            sqlglot.parse_one(candidate, read="duckdb")
-            return candidate
+            parsed = sqlglot.parse_one(clean_fence, read="duckdb")
+            if isinstance(parsed, (exp.Select, exp.Union)) or parsed.find(exp.Select):
+                return clean_fence
+        except Exception:
+            continue
+
+    # 3. Find candidate query starts (WITH or SELECT ... FROM) in reverse order
+    query_start_pattern = re.compile(
+        r"\b(WITH\s+[a-zA-Z_][a-zA-Z0-9_]*\s+AS\s*\(|SELECT\s+[\s\S]*?\bFROM\b)",
+        re.IGNORECASE,
+    )
+    matches = list(query_start_pattern.finditer(text))
+
+    for m in reversed(matches):
+        candidate = text[m.start():].strip()
+        if ";" in candidate:
+            candidate = candidate.split(";")[0].strip()
+
+        try:
+            parsed = sqlglot.parse_one(candidate, read="duckdb")
+            if isinstance(parsed, (exp.Select, exp.Union)) or parsed.find(exp.Select):
+                return candidate.rstrip(";")
         except Exception:
             pass
 
-    lines = cleaned.split("\n")
-    while len(lines) > 1:
-        lines.pop()
-        candidate = "\n".join(lines).strip().rstrip(";")
-        try:
-            sqlglot.parse_one(candidate, read="duckdb")
-            return candidate
-        except Exception:
-            continue
+        # Try trimming trailing explanatory lines from candidate
+        cand_lines = candidate.split("\n")
+        while len(cand_lines) > 1:
+            cand_lines.pop()
+            trimmed = "\n".join(cand_lines).strip().rstrip(";")
+            try:
+                parsed = sqlglot.parse_one(trimmed, read="duckdb")
+                if isinstance(parsed, (exp.Select, exp.Union)) or parsed.find(exp.Select):
+                    return trimmed
+            except Exception:
+                continue
 
-    words = cleaned.split()
-    while len(words) > 4:
-        words.pop()
-        candidate = " ".join(words).strip().rstrip(";")
-        try:
-            sqlglot.parse_one(candidate, read="duckdb")
-            return candidate
-        except Exception:
-            continue
+    # 4. Fallback cleanup
+    cleaned = text
+    if fences:
+        cleaned = fences[-1].strip()
+    if ";" in cleaned:
+        cleaned = cleaned.split(";")[0].strip()
 
     return cleaned.rstrip(";")
 

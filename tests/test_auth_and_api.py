@@ -95,3 +95,39 @@ def test_fastapi_auth_endpoints():
         headers={"Authorization": f"Bearer {token}"},
     )
     assert history_res.status_code == 200
+
+
+def test_sql_extraction_with_reasoning_preamble():
+    from src.agents.nodes.sql_generator import _extract_sql
+
+    noisy_response = """\
+1. SELECT statement (or WITH/CTE) - DuckDB SQL dialect - No DROP, DELETE...
+The question asks for top 5 brands with highest avg rating.
+There is no brand column, so we proxy by product category.
+
+```sql
+SELECT
+    p.product_category_name AS brand,
+    ROUND(AVG(r.review_score), 2) AS avg_rating
+FROM order_reviews r
+JOIN order_items oi ON r.order_id = oi.order_id
+JOIN products p ON oi.product_id = p.product_id
+GROUP BY p.product_category_name
+ORDER BY avg_rating DESC
+LIMIT 5;
+```
+Hope this helps!"""
+
+    extracted = _extract_sql(noisy_response)
+    assert "SELECT" in extracted
+    assert "product_category_name" in extracted
+    assert "DuckDB SQL dialect" not in extracted
+
+
+def test_ast_validator_allows_data_type_param():
+    from src.guardrails.sql_ast_checker import validate_sql
+
+    sql = "SELECT CAST(price AS DECIMAL(10, 2)) AS formatted_price FROM order_items LIMIT 10;"
+    result = validate_sql(sql)
+    assert "DECIMAL(10, 2)" in result or "formatted_price" in result
+

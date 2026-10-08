@@ -45,7 +45,7 @@ SAFE_NODE_TYPES: frozenset[type] = frozenset({
     exp.Lead, exp.Lag,
     exp.PartitionedByProperty,
     exp.Case, exp.If, exp.Coalesce, exp.Nullif,
-    exp.Cast, exp.TryCast, exp.DataType,
+    exp.Cast, exp.TryCast, exp.DataType, exp.DataTypeParam, exp.Collate,
     exp.Substring, exp.Upper, exp.Lower, exp.Trim,
     exp.Length, exp.Concat, exp.ConcatWs,
     exp.Replace, exp.Left, exp.Right,

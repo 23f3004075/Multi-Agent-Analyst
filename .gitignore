@@ -35,7 +35,7 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/*.parquet
-
+data/user_dbs
 # ── Generated Outputs ──
 outputs/
 eval/benchmark_results.json
